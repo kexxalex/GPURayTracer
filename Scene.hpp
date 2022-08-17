@@ -15,6 +15,9 @@ public:
 
     bool addWavefrontModel(const std::string &model_name);
 
+    void setDirectionLight(const glm::fvec3 &light_dir);
+    void setAmbientLight(const glm::fvec3 &ambient_color);
+
     void finalizeObjects();
     void generateRandomUnitVectors();
     void adaptResolution(const glm::ivec2 &newRes);

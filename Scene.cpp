@@ -116,7 +116,6 @@ void Scene::createTrianglesBuffers() {
     std::cout << "Triangles: " << computeData.triangles << '\n';
 
     MappedBuffer<Triangle> mapped_triangles(computeData.triangleBuffer, computeData.triangles);
-    std::cout << sizeof(Triangle) * computeData.triangles << '\n';
 
     unsigned int index = 0;
     for (const Object &obj: m_objects) {
@@ -149,7 +148,6 @@ void Scene::createMaterialsBuffers() {
 
     for (unsigned int index = 0; index < materials; ++index) {
         const Material &mat = m_materials[index];
-        std::cout << "Material Albedo: " << mat.albedo.r << ',' << mat.albedo.g << ',' << mat.albedo.b << '\n';
         mapped_albedo[index] = glm::fvec4(mat.albedo, 1.0f);
         mapped_spec[index] = glm::fvec4(mat.specular, 1.0f);
         mapped_EM[index] = glm::fvec4(mat.emission, mat.metallic);
@@ -194,7 +192,6 @@ void Scene::generateRandomUnitVectors() {
     static MappedBuffer<glm::fvec4> rndMap(randomBuffer, 0, GL_MAP_PERSISTENT_BIT | GL_MAP_COHERENT_BIT | GL_MAP_WRITE_BIT, GL_WRITE_ONLY);
     static long random_size = 0;
 
-    std::cout << new_random_size << '\n';
     if (new_random_size > random_size) {
         glDeleteBuffers(1, &randomBuffer);
         glCreateBuffers(1, &randomBuffer);
@@ -203,7 +200,6 @@ void Scene::generateRandomUnitVectors() {
         rndMap.buffer = randomBuffer;
         random_size = new_random_size;
     }
-    std::cout << rndMap.ptr << '\n';
     if (!rndMap.ptr)
         return;
 
@@ -224,6 +220,18 @@ void Scene::generateRandomUnitVectors() {
         }
     }
     glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 4, randomBuffer);
+}
+
+void Scene::setDirectionLight(const glm::fvec3 &light_dir) {
+    static const int RT_LightLoc = glGetUniformLocation(eyeRayTracerProgram, "LIGHT_DIR");
+    glProgramUniform3f(eyeRayTracerProgram, RT_LightLoc, light_dir.x, light_dir.y, light_dir.z);
+    modelShader.setFloat3("LIGHT_DIR", light_dir);
+}
+
+void Scene::setAmbientLight(const glm::fvec3 &ambient_color) {
+    static const int RT_AmbientLoc = glGetUniformLocation(eyeRayTracerProgram, "AMBIENT");
+    glProgramUniform3f(eyeRayTracerProgram, RT_AmbientLoc, ambient_color.r, ambient_color.g, ambient_color.b);
+    modelShader.setFloat3("AMBIENT", ambient_color);
 }
 
 void Scene::adaptResolution(const glm::ivec2 &newRes) {
@@ -282,7 +290,7 @@ void Scene::render(int width, int height, bool moving, const glm::fmat4 &Camera,
         firstTime = false;
     }
 
-    int recursion = 2;
+    int recursion = 16;
 
     if (moving) {
         glBindImageTexture(0, computeData.renderTargetLow, 0, GL_FALSE, 0, GL_WRITE_ONLY, GL_RGBA32F);
@@ -352,10 +360,8 @@ std::shared_ptr<unsigned char[]> Scene::exportRGBA8() const  {
 
 bool Scene::exportBMP(const char *name) const {
     unsigned long pixel_count = (unsigned long)computeData.resolution.x*computeData.resolution.y;
-    std::cout << pixel_count << '\n';
 
     std::unique_ptr<glm::fvec4[]> raw_pixels(new glm::fvec4[pixel_count]);
-    std::cout << computeData.renderTarget << " - " << raw_pixels << '\n';
     glGetTextureImage(computeData.renderTarget, 0, GL_RGBA, GL_FLOAT,
                       (unsigned long)(pixel_count * sizeof(glm::fvec4)),
                       &raw_pixels[0]);
@@ -375,7 +381,6 @@ bool Scene::exportBMP(const char *name) const {
         bmpFile << static_cast<unsigned char>(glm::clamp(raw_pixels[i].g * 255, 0.0f, 255.0f));
         bmpFile << static_cast<unsigned char>(glm::clamp(raw_pixels[i].b * 255, 0.0f, 255.0f));
     }
-    std::cout << '\n';
 
     bmpFile.close();
 

@@ -7,12 +7,15 @@
 
 static constexpr glm::dvec3 rot_x(1.0f, 0.0f, 0.0f);
 static constexpr glm::dvec3 rot_y(0.0f, 1.0f, 0.0f);
-static int WIDTH(2048), HEIGHT(2048);
+static int WIDTH(3440), HEIGHT(1440);
 
-//static glm::dvec2 MVP_rot(-0.7,-2.47);
-static glm::dvec2 MVP_rot(-0.55,-2.88);
-// static glm::dvec3 MVP_translation(-2.35978,3.87126,4.10415);
-static glm::dvec3 MVP_translation(-2.1225,3.41671,3.85816);
+static glm::dvec2 MVP_rot(-0.7,-2.47);
+// static glm::dvec2 MVP_rot(-0.55,-2.88);
+static glm::dvec3 MVP_translation(-2.35978,3.87126,4.10415);
+
+static glm::fvec3 LIGHT_DIR = glm::normalize(glm::fvec3(0, -1, -1))* 0.5f;
+static glm::fvec3 AMBIENT = glm::fvec3(0.8, 0.86, 0.9);
+// static glm::dvec3 MVP_translation(-2.1225,3.41671,3.85816);
 
 
 
@@ -36,7 +39,6 @@ void finalRender(GLFWwindow *window, Scene &scene, int width, int height) {
 }
 
 
-
 void mainLoop(GLFWwindow *window, Scene &scene) {
     glm::dmat4 ROT = glm::rotate(-MVP_rot.y, rot_y) * glm::rotate(-MVP_rot.x, rot_x);
 
@@ -47,7 +49,7 @@ void mainLoop(GLFWwindow *window, Scene &scene) {
     double lastUpdate = glfwGetTime();
 
     glEnable(GL_DEPTH_TEST);
-    glClearColor(0.8, 0.86, 0.9, 1.0);
+    glClearColor(AMBIENT.r, AMBIENT.g, AMBIENT.b, 1.0);
     static unsigned int sample = 0;
 
     while (!glfwWindowShouldClose(window)) {
@@ -55,7 +57,9 @@ void mainLoop(GLFWwindow *window, Scene &scene) {
         double deltaT = time - lastUpdate;
         lastUpdate = time;
 
-        bool moving = glfwGetMouseButton(window, GLFW_MOUSE_BUTTON_MIDDLE);
+        bool rightBtn = glfwGetMouseButton(window, GLFW_MOUSE_BUTTON_RIGHT);
+        bool middleBtn = glfwGetMouseButton(window, GLFW_MOUSE_BUTTON_MIDDLE);
+        bool moving = (rightBtn != middleBtn);
         bool shift = glfwGetKey(window, GLFW_KEY_LEFT_SHIFT);
         bool ctrl = glfwGetKey(window, GLFW_KEY_LEFT_CONTROL);
 
@@ -65,34 +69,43 @@ void mainLoop(GLFWwindow *window, Scene &scene) {
 
         if (moving && glm::dot(delta, delta) > 0) {
             MVP_rot += delta * 0.01;
+            sample = 0;
         }
         if (glfwGetKey(window, GLFW_KEY_W)) {
             MVP_translation += glm::dvec3(ROT*glm::dvec4(0, 0, deltaT * (shift ? 8.0 : 1.0) * (ctrl ? 0.125 : 1.0), 0));
             moving = true;
+            sample = 0;
         }
         if (glfwGetKey(window, GLFW_KEY_S)) {
             MVP_translation += glm::dvec3(ROT*glm::dvec4(0,0,-deltaT * (shift ? 8.0 : 1.0) * (ctrl ? 0.125 : 1.0), 0));
             moving = true;
+            sample = 0;
         }
         if (glfwGetKey(window, GLFW_KEY_A)) {
             MVP_translation += glm::dvec3(ROT*glm::dvec4(-deltaT * (shift ? 8.0 : 1.0) * (ctrl ? 0.125 : 1.0), 0, 0, 0));
             moving = true;
+            sample = 0;
         }
         if (glfwGetKey(window, GLFW_KEY_D)) {
             MVP_translation += glm::dvec3(ROT*glm::dvec4(deltaT * (shift ? 8.0 : 1.0) * (ctrl ? 0.125 : 1.0), 0, 0, 0));
             moving = true;
+            sample = 0;
         }
         if (glfwGetKey(window, GLFW_KEY_SPACE)) {
             MVP_translation += glm::dvec3(ROT*glm::dvec4(0, deltaT * (shift ? 8.0 : 1.0) * (ctrl ? 0.125 : 1.0), 0, 0));
             moving = true;
+            sample = 0;
         }
         if (glfwGetKey(window, GLFW_KEY_C)) {
             MVP_translation += glm::dvec3(ROT*glm::dvec4(0, -deltaT * (shift ? 8.0 : 1.0) * (ctrl ? 0.125 : 1.0), 0, 0));
             moving = true;
+            sample = 0;
         }
 
         if (moving || lastMoving != moving)
         {
+            if (lastMoving != moving)
+                sample = 0;
             // std::cout << MVP_translation.x << ',' << MVP_translation.y << ',' << MVP_translation.z << '\n';
             // std::cout << MVP_rot.x << ',' << MVP_rot.y << '\n';
             ROT = glm::rotate(-MVP_rot.y, rot_y) * glm::rotate(-MVP_rot.x, rot_x);
@@ -101,12 +114,16 @@ void mainLoop(GLFWwindow *window, Scene &scene) {
             glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
             if (!moving) {
                 glfwSetWindowTitle(window, ("GPU RT - Samples: " + std::to_string(sample+1)).c_str());
-                scene.render(WIDTH, HEIGHT, moving, CameraTransform, sample++);
+                scene.render(WIDTH, HEIGHT, false, CameraTransform, sample++);
             }
-            else {
+            else if (middleBtn) {
                 sample = 0;
                 glfwSetWindowTitle(window, "GPU RT - OpenGL Phong");
                 scene.forwardRender(MVP, MVP_translation);
+            }
+            else {
+                glfwSetWindowTitle(window, ("GPU RT - Samples: " + std::to_string(sample+1)).c_str());
+                scene.render(WIDTH, HEIGHT, true, CameraTransform, sample++);
             }
             glfwSwapBuffers(window);
         }
@@ -121,18 +138,16 @@ void mainLoop(GLFWwindow *window, Scene &scene) {
 
 
 int main() {
-    std::string name("./res/ObiWan");
+    std::string name;
 
-    /*
     std::cout << "Wavefront File: ";
     std::cin >> name;
 
     std::cout << "Width: ";
-    std::cin >> width;
+    std::cin >> WIDTH;
 
     std::cout << "Height: ";
-    std::cin >> height;
-     */
+    std::cin >> HEIGHT;
 
     glfwInit();
 
@@ -149,9 +164,11 @@ int main() {
     glewInit();
 
     Scene scene;
-    std::cout << (scene.addWavefrontModel(name) ? "Scene Loaded" : "Scene does not exist") << '\n';
+    std::cout << (scene.addWavefrontModel("./res/"+name) ? "Scene Loaded" : "Scene does not exist") << '\n';
 
     scene.finalizeObjects();
+    scene.setAmbientLight(AMBIENT);
+    scene.setDirectionLight(LIGHT_DIR);
     mainLoop(window, scene);
 
     glfwTerminate();

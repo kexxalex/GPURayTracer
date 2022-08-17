@@ -62,8 +62,9 @@ layout(std430, binding=14) restrict readonly buffer mem {
 uniform int COUNT;
 uniform int RECURSION;
 uniform int SAMPLE;
+uniform vec3 LIGHT_DIR;
+uniform vec3 AMBIENT;
 const vec3 LUMA = vec3(0.299, 0.587, 0.114);
-const vec3 LIGHT_DIR = normalize(vec3(0, -1, -1)) * 0.5;
 uvec2 SIZE;
 ivec2 TEXEL;
 
@@ -180,7 +181,7 @@ vec3 trace(vec3 rayPos, vec3 rayDir) {
 			rayDir = normalize(reflect(rayDir, normal) + roughness * scatter);
 		}
 		else {
-			final_color += (albed + spec*light)*vec3(0.8, 0.86, 0.9)*intensity;
+			final_color += (albed + spec*light)*AMBIENT*intensity;
 			break;
 		}
 	}
