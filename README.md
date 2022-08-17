@@ -1,2 +1,3 @@
 # GPURayTracer
-An OpenGL RayTracer with Phong Shaded free camera movement
+An OpenGL RayTracer with Phong Shaded free camera movement.
+Code is still a mess...
