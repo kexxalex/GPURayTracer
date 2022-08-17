@@ -290,7 +290,7 @@ void Scene::render(int width, int height, bool moving, const glm::fmat4 &Camera,
         firstTime = false;
     }
 
-    int recursion = 16;
+    int recursion = 8;
 
     if (moving) {
         glBindImageTexture(0, computeData.renderTargetLow, 0, GL_FALSE, 0, GL_WRITE_ONLY, GL_RGBA32F);

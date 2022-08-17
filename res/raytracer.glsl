@@ -75,10 +75,10 @@ vec3 random_hemi(vec3 n, uint step) {
 	return dot(n, rvec) > 0 ? rvec : -rvec;
 }
 
-vec3 intersect(vec3 rayPos, vec3 rayDir, vec3 p, vec3 u, vec3 v, vec3 N, float compDist) {
+vec3 intersect(vec3 rayPos, vec3 rayDir, vec3 p, vec3 u, vec3 v, vec3 N, float compDist, bool shadow) {
 	vec3 relative;
 	float rayDotN = dot(rayDir, N);
-	if (rayDotN <= 0) {
+	if (!shadow && rayDotN <= 0) {
 		return vec3(0.0, 0.0, -1.0);
 	}
 
@@ -109,7 +109,7 @@ bool hit(vec3 rayPos, vec3 rayDir, int avoid) {
 		}
 
 		Triangle tri = triangles[triID];
-		vec3 sec = intersect(rayPos, rayDir, tri.position.xyz, tri.u.xyz, tri.v.xyz, cross(tri.v.xyz, tri.u.xyz), -1.0);
+		vec3 sec = intersect(rayPos, rayDir, tri.position.xyz, tri.u.xyz, tri.v.xyz, cross(tri.v.xyz, tri.u.xyz), -1.0, true);
 		if (sec.z > 0.0) {
 			return true;
 		}
@@ -140,7 +140,7 @@ vec3 trace(vec3 rayPos, vec3 rayDir) {
 
 			Triangle tri = triangles[triID];
 			
-			vec3 sec = intersect(rayPos, rayDir, tri.position.xyz, tri.u.xyz, tri.v.xyz, cross(tri.v.xyz, tri.u.xyz), current_intersection.z);
+			vec3 sec = intersect(rayPos, rayDir, tri.position.xyz, tri.u.xyz, tri.v.xyz, cross(tri.v.xyz, tri.u.xyz), current_intersection.z, false);
 			if (sec.z > 0.0) {
 				current_intersection = sec;
 				current_tri = triID;
