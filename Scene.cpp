@@ -247,8 +247,8 @@ void Scene::adaptResolution(const glm::ivec2 &newRes) {
         glDeleteTextures(1, &computeData.renderTargetLow);
         glCreateTextures(GL_TEXTURE_2D, 1, &computeData.renderTarget);
         glTextureStorage2D(computeData.renderTarget, 1, GL_RGBA32F, newRes.x, newRes.y);
-        glTextureParameteri(computeData.renderTarget, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
-        glTextureParameteri(computeData.renderTarget, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+        glTextureParameteri(computeData.renderTarget, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+        glTextureParameteri(computeData.renderTarget, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
 
         glCreateTextures(GL_TEXTURE_2D, 1, &computeData.renderTargetLow);
         glTextureStorage2D(computeData.renderTargetLow, 1, GL_RGBA32F, (int)(180.0/newRes.y*newRes.x), 180); // >> 3

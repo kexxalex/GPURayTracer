@@ -20,10 +20,8 @@ struct Ray {
 	vec4 direction;
 };
 
+
 uniform mat4 CAMERA;
-uniform bool WIREFRAME;
-
-
 
 
 layout(rgba32f, binding=0) restrict uniform image2D img_output;
@@ -66,21 +64,22 @@ uniform int RECURSION;
 uniform int SAMPLE;
 uniform vec3 LIGHT_DIR;
 uniform vec3 AMBIENT;
+
 const vec3 LUMA = vec3(0.299, 0.587, 0.114);
 uvec2 SIZE;
 ivec2 TEXEL;
 
 
 vec3 random_hemi(vec3 n, uint step) {
-	uint size = SIZE.x * SIZE.y * 2;
+	uint size = SIZE.x * SIZE.y * 4;
 	vec3 rvec = rand_vec[((TEXEL.x * SIZE.y + TEXEL.y) * 5 + step + SAMPLE * 1123) % size].xyz;
 	return dot(n, rvec) > 0 ? rvec : -rvec;
 }
 
-vec3 intersect(vec3 rayPos, vec3 rayDir, vec3 p, vec3 u, vec3 v, vec3 N, float compDist) {
+vec3 intersect(vec3 rayPos, vec3 rayDir, vec3 p, vec3 u, vec3 v, vec3 N, float compDist, bool shadow) {
 	vec3 relative;
 	float rayDotN = dot(rayDir, N);
-	if (rayDotN <= 0.0) {
+	if ((!shadow && rayDotN <= 0.0) || rayDotN == 0.0) {
 		return vec3(0.0, 0.0, -1.0);
 	}
 
@@ -111,7 +110,7 @@ bool hit(vec3 rayPos, vec3 rayDir, int avoid) {
 		}
 
 		Triangle tri = triangles[triID];
-		vec3 sec = intersect(rayPos, rayDir, tri.position.xyz, tri.u.xyz, tri.v.xyz, cross(tri.v.xyz, tri.u.xyz), -1.0);
+		vec3 sec = intersect(rayPos, rayDir, tri.position.xyz, tri.u.xyz, tri.v.xyz, cross(tri.v.xyz, tri.u.xyz), -1.0, true);
 		if (sec.z > 0.0) {
 			return true;
 		}
@@ -147,7 +146,7 @@ vec3 trace(vec3 rayPos, vec3 rayDir) {
 
 			Triangle tri = triangles[triID];
 			
-			vec3 sec = intersect(rayPos, rayDir, tri.position.xyz, tri.u.xyz, tri.v.xyz, cross(tri.v.xyz, tri.u.xyz), current_intersection.z);
+			vec3 sec = intersect(rayPos, rayDir, tri.position.xyz, tri.u.xyz, tri.v.xyz, cross(tri.v.xyz, tri.u.xyz), current_intersection.z, false);
 			if (sec.z > 0.0) {
 				current_intersection = sec;
 				current_tri = triID;
@@ -158,6 +157,7 @@ vec3 trace(vec3 rayPos, vec3 rayDir) {
 			Triangle tri = triangles[current_tri];
 			vec3 sec = current_intersection;
 			vec3 normal = normalize(tri.normal0.xyz * (1.0-sec.x-sec.y) + tri.normal1.xyz * sec.x + tri.normal2.xyz * sec.y);
+			vec3 refl_ray_dir = reflect(rayDir, normal);
 
 			uint material = uint(ceil(tri.u.w));
 
@@ -166,10 +166,18 @@ vec3 trace(vec3 rayPos, vec3 rayDir) {
 			vec4 emi_met = emission_metallic[material];
 
 			rayPos = rayPos + rayDir * sec.z;
-			float nDotL = dot(normal, -LIGHT_DIR);
-			bool inShadow = nDotL <= 0.0 || hit(rayPos, -LIGHT_DIR, current_tri);
-			float directLight = inShadow ? 0.0 : nDotL;
-			float specDirectIntens = inShadow ? 0.0 : max(dot(reflect(rayDir, normal), -LIGHT_DIR), 0.0);
+			float light_intens = length(LIGHT_DIR);
+			vec3 light_scatter = vec3(0.0);
+			bool inShadow = true;
+			float directLight = 0.0;
+			float specDirectIntens = 0.0;
+
+			if (light_intens > 0) {
+				light_scatter = LIGHT_DIR + 0.01*random_hemi(LIGHT_DIR, step*7+3);
+				inShadow = hit(rayPos, -light_scatter, current_tri);
+				directLight = inShadow ? 0.0 : max(dot(normal, -LIGHT_DIR), 0.0);
+				specDirectIntens = inShadow ? 0.0 : max(dot(refl_ray_dir, -LIGHT_DIR), 0.0);
+			}
 
 			vec3 specularClr = specDirectIntens * spc;
 			vec3 diffuseClr = (prevLight + directLight) * alb;
@@ -189,7 +197,7 @@ vec3 trace(vec3 rayPos, vec3 rayDir) {
 				break;
 
 			intensity *= dot(LUMA, spc+alb);
-			prevLight = max(dot(-rayDir, normal), 0.0);
+			prevLight = max(-dot(rayDir, normal), 0.0);
 
 			float roughness = dot(LUMA, alb);
 			vec3 scatter = random_hemi(normal, step);
@@ -198,9 +206,9 @@ vec3 trace(vec3 rayPos, vec3 rayDir) {
 			prevAlbedo = alb;
 
 			if (roughness > 0)
-				rayDir = normalize(reflect(rayDir, normal) + roughness * scatter);
+				rayDir = normalize(refl_ray_dir + roughness * scatter);
 			else
-				rayDir = reflect(rayDir, normal);
+				rayDir = refl_ray_dir;
 		}
 		else {
 			break;

@@ -13,8 +13,8 @@ static glm::dvec2 MVP_rot(-0.7,-2.47);
 // static glm::dvec2 MVP_rot(-0.55,-2.88);
 static glm::dvec3 MVP_translation(-2.35978,3.87126,4.10415);
 
-static glm::fvec3 LIGHT_DIR = glm::normalize(glm::fvec3(1, -1, -1)) * 0.1f;
-static glm::fvec3 AMBIENT = glm::fvec3(0.8, 0.86, 0.9) * 0.05f;
+static glm::fvec3 LIGHT_DIR = glm::normalize(glm::fvec3(1, -1, -1)) * 1.1f;
+static glm::fvec3 AMBIENT = glm::fvec3(0.8, 0.86, 0.9) * 0.0f;
 // static glm::dvec3 MVP_translation(-2.1225,3.41671,3.85816);
 
 
