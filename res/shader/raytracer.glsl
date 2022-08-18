@@ -77,10 +77,10 @@ vec3 random_hemi(vec3 n, uint step) {
 	return dot(n, rvec) > 0 ? rvec : -rvec;
 }
 
-vec3 intersect(vec3 rayPos, vec3 rayDir, vec3 p, vec3 u, vec3 v, vec3 N, float compDist, bool shadow) {
+vec3 intersect(vec3 rayPos, vec3 rayDir, vec3 p, vec3 u, vec3 v, vec3 N, float compDist) {
 	vec3 relative;
 	float rayDotN = dot(rayDir, N);
-	if ((!shadow && rayDotN <= 0.0) || rayDotN == 0.0) {
+	if (rayDotN <= 0.0) {
 		return vec3(0.0, 0.0, -1.0);
 	}
 
@@ -111,7 +111,7 @@ bool hit(vec3 rayPos, vec3 rayDir, int avoid) {
 		}
 
 		Triangle tri = triangles[triID];
-		vec3 sec = intersect(rayPos, rayDir, tri.position.xyz, tri.u.xyz, tri.v.xyz, cross(tri.v.xyz, tri.u.xyz), -1.0, true);
+		vec3 sec = intersect(rayPos, rayDir, tri.position.xyz, tri.u.xyz, tri.v.xyz, cross(tri.v.xyz, tri.u.xyz), -1.0);
 		if (sec.z > 0.0) {
 			return true;
 		}
@@ -147,7 +147,7 @@ vec3 trace(vec3 rayPos, vec3 rayDir) {
 
 			Triangle tri = triangles[triID];
 			
-			vec3 sec = intersect(rayPos, rayDir, tri.position.xyz, tri.u.xyz, tri.v.xyz, cross(tri.v.xyz, tri.u.xyz), current_intersection.z, false);
+			vec3 sec = intersect(rayPos, rayDir, tri.position.xyz, tri.u.xyz, tri.v.xyz, cross(tri.v.xyz, tri.u.xyz), current_intersection.z);
 			if (sec.z > 0.0) {
 				current_intersection = sec;
 				current_tri = triID;
@@ -166,12 +166,13 @@ vec3 trace(vec3 rayPos, vec3 rayDir) {
 			vec4 emi_met = emission_metallic[material];
 
 			rayPos = rayPos + rayDir * sec.z;
-			bool inShadow = length(LIGHT_DIR) == 0 || hit(rayPos, -LIGHT_DIR, current_tri);
-			float dirLight = inShadow ? 0.0 : max(dot(normal, -LIGHT_DIR), 0.0);
+			float nDotL = dot(normal, -LIGHT_DIR);
+			bool inShadow = nDotL <= 0.0 || hit(rayPos, -LIGHT_DIR, current_tri);
+			float directLight = inShadow ? 0.0 : nDotL;
 			float specDirectIntens = inShadow ? 0.0 : max(dot(reflect(rayDir, normal), -LIGHT_DIR), 0.0);
 
 			vec3 specularClr = specDirectIntens * spc;
-			vec3 diffuseClr = (prevLight + dirLight) * alb;
+			vec3 diffuseClr = (prevLight + directLight) * alb;
 			vec3 emissionClr = emi_met.rgb;
 
 			if (step == 0) {
