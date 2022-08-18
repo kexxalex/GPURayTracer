@@ -28,9 +28,6 @@ uniform bool WIREFRAME;
 
 layout(rgba32f, binding=0) restrict uniform image2D img_output;
 
-layout(std430, binding=4) restrict readonly buffer randBuffer {
-	vec4 rand_vec[];
-};
 
 
 layout(std430, binding=1) restrict readonly buffer visBuffer {
@@ -47,6 +44,11 @@ layout(std430, binding=3) restrict readonly buffer triangleBuffer {
 	Triangle triangles[];
 };
 
+// Large array of random unit vectors
+
+layout(std430, binding=4) restrict readonly buffer randBuffer {
+	vec4 rand_vec[];
+};
 
 // Materials
 layout(std430, binding=12) restrict readonly buffer malb {
@@ -78,7 +80,7 @@ vec3 random_hemi(vec3 n, uint step) {
 vec3 intersect(vec3 rayPos, vec3 rayDir, vec3 p, vec3 u, vec3 v, vec3 N, float compDist, bool shadow) {
 	vec3 relative;
 	float rayDotN = dot(rayDir, N);
-	if (!shadow && rayDotN <= 0) {
+	if ((!shadow && rayDotN <= 0.0) || rayDotN == 0.0) {
 		return vec3(0.0, 0.0, -1.0);
 	}
 
@@ -120,11 +122,16 @@ bool hit(vec3 rayPos, vec3 rayDir, int avoid) {
 
 vec3 trace(vec3 rayPos, vec3 rayDir) {
 	vec3 final_color = vec3(0.0);
-	vec3 spec = vec3(0.0);
-	vec3 albed = vec3(1.0);
-	float metall = 0.0;
+	vec3 path_color = vec3(0.0);
+
+	vec3 prevSpecular = vec3(0.0);
+	vec3 prevAlbedo = vec3(0.0);
+	vec3 prevColor = vec3(1.0);
+	float prevMetall = 0.0;
+	float prevRoughness = 0.0;
+
 	float intensity = 1.0;
-	float light = 0.0;
+	float prevLight = 0.0;
 	
 	int avoid_tri = -1;
 
@@ -159,32 +166,49 @@ vec3 trace(vec3 rayPos, vec3 rayDir) {
 			vec4 emi_met = emission_metallic[material];
 
 			rayPos = rayPos + rayDir * sec.z;
-			bool inShadow = hit(rayPos, -LIGHT_DIR, current_tri);
+			bool inShadow = length(LIGHT_DIR) == 0 || hit(rayPos, -LIGHT_DIR, current_tri);
 			float dirLight = inShadow ? 0.0 : max(dot(normal, -LIGHT_DIR), 0.0);
 			float specDirectIntens = inShadow ? 0.0 : max(dot(reflect(rayDir, normal), -LIGHT_DIR), 0.0);
 
-			final_color += (spec+albed)*(((light + dirLight)*alb + emi_met.rgb) + specDirectIntens * spc)*intensity;
-			vec3 totalClr = spec+albed;
-			if (dot(totalClr, totalClr) == 0)
+			vec3 specularClr = specDirectIntens * spc;
+			vec3 diffuseClr = (prevLight + dirLight) * alb;
+			vec3 emissionClr = emi_met.rgb;
+
+			if (step == 0) {
+				final_color += emissionClr;
+			}
+			path_color += prevColor * (diffuseClr + emissionClr + specularClr) * intensity;
+			if (dot(emissionClr, emissionClr) > 0 || !inShadow) {
+				final_color += path_color;
+				path_color = vec3(0.0);
+			}
+			prevColor = alb + spc;
+			avoid_tri = current_tri;
+			if (dot(prevColor, prevColor) == 0)
 				break;
 
 			intensity *= dot(LUMA, spc+alb);
-			light = max(dot(-rayDir, normal), 0.0);
+			prevLight = max(dot(-rayDir, normal), 0.0);
 
 			float roughness = dot(LUMA, alb);
 			vec3 scatter = random_hemi(normal, step);
-			spec = spc;
-			metall = emi_met.a;
-			albed = alb;
+			prevSpecular = spc;
+			prevMetall = emi_met.a;
+			prevAlbedo = alb;
 
-			avoid_tri = current_tri;
-			rayDir = normalize(reflect(rayDir, normal) + roughness * scatter);
+			if (roughness > 0)
+				rayDir = normalize(reflect(rayDir, normal) + roughness * scatter);
+			else
+				rayDir = reflect(rayDir, normal);
 		}
 		else {
-			final_color += (albed + spec*light)*AMBIENT*intensity;
 			break;
 		}
 	}
+	if (avoid_tri >= 0)
+		final_color += path_color*AMBIENT + (prevAlbedo + prevSpecular*prevLight)*AMBIENT*intensity;
+	else
+		final_color += AMBIENT;
 	
 	return final_color;
 }

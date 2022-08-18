@@ -2,7 +2,6 @@
 
 layout (location=0) out vec3 outFragColor;
 
-
 const vec3 LUMA = vec3(0.299, 0.587, 0.114);
 
 in vec3 vNormal;
@@ -16,6 +15,8 @@ uniform vec3 AMBIENT;
 uniform mat4 MVP;
 uniform vec3 CAMERA;
 
+uniform bool WIREFRAME;
+
 void main() {
     vec3 normal = normalize(vNormal);
     float light = max(dot(-LIGHT_DIR, normal), 0.0);
@@ -26,5 +27,6 @@ void main() {
 
     vec3 diffuse = light*vAlbedo;
     vec3 specular = spec*vSpecular;
-    outFragColor = diffuse + specular + vEmission + (vAlbedo + vSpecular*ambient_spec)*AMBIENT*ambient_light;
+    vec3 color = diffuse + specular + vEmission + (vAlbedo + vSpecular*ambient_spec)*AMBIENT*ambient_light;
+    outFragColor = WIREFRAME ? normal * 0.5 + 0.5 : color;
 } 

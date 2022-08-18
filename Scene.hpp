@@ -22,6 +22,7 @@ public:
     void generateRandomUnitVectors();
     void adaptResolution(const glm::ivec2 &newRes);
     void render(int width, int height, bool moving, const glm::fmat4 &Camera, unsigned int sample);
+    void renderWireframe(const glm::fmat4 &MVP, const glm::fvec3 &cam_pos);
     void forwardRender(const glm::fmat4 &MVP, const glm::fvec3 &cam_pos);
     std::shared_ptr<unsigned char[]> exportRGBA8() const;
     bool exportBMP(const char *name) const;

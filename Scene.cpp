@@ -3,6 +3,7 @@
 #include "Scene.hpp"
 #include "Shader.hpp"
 #include <random>
+#include <GLFW/glfw3.h>
 
 
 #ifdef __linux__
@@ -64,15 +65,15 @@ struct MappedBuffer {
 
 Scene::Scene()
     : eyeRayTracerProgram(glCreateProgram()), spatialSortProgram(glCreateProgram()), drawBufferProgram(glCreateProgram()),
-      displayShader("./res/default"), modelShader("./res/shader/model")
+      displayShader("./res/shader/displayQuad"), modelShader("./res/shader/model")
 {
     GLuint computeID = 0;
-    if (loadShaderProgram("./res/raytracer.glsl", GL_COMPUTE_SHADER, computeID))
+    if (loadShaderProgram("./res/shader/raytracer.glsl", GL_COMPUTE_SHADER, computeID))
         glAttachShader(eyeRayTracerProgram, computeID);
     glLinkProgram(eyeRayTracerProgram);
     glDeleteShader(computeID);
 
-    if (loadShaderProgram("./res/spatial-sort.glsl", GL_COMPUTE_SHADER, computeID))
+    if (loadShaderProgram("./res/shader/spatialSort.glsl", GL_COMPUTE_SHADER, computeID))
         glAttachShader(spatialSortProgram, computeID);
     glLinkProgram(spatialSortProgram);
     glDeleteShader(computeID);
@@ -175,12 +176,14 @@ void Scene::finalizeObjects() {
         createRTCSData();
         bindBuffer();
 
+        double t0 = glfwGetTime();
         glUseProgram(spatialSortProgram);
         glDispatchCompute((int)glm::ceil(computeData.triangles / 64.0f), 1, 1);
 
         glUseProgram(drawBufferProgram);
         glDispatchCompute((int)glm::ceil(computeData.triangles / 64.0f), 1, 1);
         glMemoryBarrier(GL_ALL_BARRIER_BITS);
+        std::cout << glfwGetTime() - t0 << std::endl;
 
         computeData.initialized = true;
     }
@@ -244,11 +247,11 @@ void Scene::adaptResolution(const glm::ivec2 &newRes) {
         glDeleteTextures(1, &computeData.renderTargetLow);
         glCreateTextures(GL_TEXTURE_2D, 1, &computeData.renderTarget);
         glTextureStorage2D(computeData.renderTarget, 1, GL_RGBA32F, newRes.x, newRes.y);
-        glTextureParameteri(computeData.renderTarget, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
-        glTextureParameteri(computeData.renderTarget, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+        glTextureParameteri(computeData.renderTarget, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+        glTextureParameteri(computeData.renderTarget, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
 
         glCreateTextures(GL_TEXTURE_2D, 1, &computeData.renderTargetLow);
-        glTextureStorage2D(computeData.renderTargetLow, 1, GL_RGBA32F, newRes.x >> 3, newRes.y >> 3);
+        glTextureStorage2D(computeData.renderTargetLow, 1, GL_RGBA32F, (int)(180.0/newRes.y*newRes.x), 180); // >> 3
         glTextureParameteri(computeData.renderTargetLow, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
         glTextureParameteri(computeData.renderTargetLow, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
 
@@ -290,14 +293,14 @@ void Scene::render(int width, int height, bool moving, const glm::fmat4 &Camera,
         firstTime = false;
     }
 
-    int recursion = 8;
+    int recursion = 12;
 
     if (moving) {
         glBindImageTexture(0, computeData.renderTargetLow, 0, GL_FALSE, 0, GL_WRITE_ONLY, GL_RGBA32F);
         glBindTextureUnit(0, computeData.renderTargetLow);
 
-        width >>= 3;
-        height >>= 3;
+        width = (int)(240.0/height*width);
+        height = 240;
 
         recursion = 3;
     }
@@ -313,6 +316,20 @@ void Scene::render(int width, int height, bool moving, const glm::fmat4 &Camera,
 
     glBindVertexArray(screenVAO);
     glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);
+}
+
+void Scene::renderWireframe(const glm::fmat4 &MVP, const glm::fvec3 &cam_pos) {
+    modelShader.setBool("WIREFRAME", true);
+    glDisable(GL_DEPTH_TEST);
+    glEnable(GL_CULL_FACE);
+    glPolygonMode(GL_FRONT_AND_BACK, GL_LINE);
+
+    forwardRender(MVP, cam_pos);
+
+    glDisable(GL_CULL_FACE);
+    glEnable(GL_DEPTH_TEST);
+    glPolygonMode(GL_FRONT_AND_BACK, GL_FILL);
+    modelShader.setBool("WIREFRAME", false);
 }
 
 void Scene::forwardRender(const glm::fmat4 &MVP, const glm::fvec3 &cam_pos) {
@@ -388,8 +405,8 @@ bool Scene::exportBMP(const char *name) const {
 }
 
 
-struct st_face {
-    st_face() = default;
+struct st_wf_face {
+    st_wf_face() = default;
 
     unsigned int pos_i[3];
     unsigned int tex_i[3];
@@ -406,7 +423,7 @@ bool Scene::addWavefrontModel(const std::string &name) {
     std::vector<glm::fvec3> positions;
     std::vector<glm::fvec3> normals;
     std::vector<glm::fvec2> uv_coords;
-    std::vector<st_face> faces;
+    std::vector<st_wf_face> faces;
 
     std::string line;
 
@@ -416,7 +433,7 @@ bool Scene::addWavefrontModel(const std::string &name) {
 
         if (line[0] == 'o') {
             if (object) {
-                for (const st_face &face: faces) {
+                for (const st_wf_face &face: faces) {
                     object->triangles.emplace_back(
                             positions[face.pos_i[0] - 1], positions[face.pos_i[1] - 1], positions[face.pos_i[2] - 1],
                             normals[face.nrm_i[0] - 1], normals[face.nrm_i[1] - 1], normals[face.nrm_i[2] - 1],
@@ -447,7 +464,7 @@ bool Scene::addWavefrontModel(const std::string &name) {
         } else if (object != nullptr && line.compare(0, 6, "usemtl") == 0) {
             object->material_index = getMaterialIndex(line.substr(7));
         } else if (line[0] == 'f') {
-            st_face &face = faces.emplace_back();
+            st_wf_face &face = faces.emplace_back();
             SSCANF(line.c_str(), "%*s %i/%i/%i %i/%i/%i %i/%i/%i",
                    &face.pos_i[0], &face.tex_i[0], &face.nrm_i[0],
                    &face.pos_i[1], &face.tex_i[1], &face.nrm_i[1],
@@ -456,7 +473,7 @@ bool Scene::addWavefrontModel(const std::string &name) {
         }
     }
     if (object) {
-        for (const st_face &face: faces) {
+        for (const st_wf_face &face: faces) {
             object->triangles.emplace_back(
                     positions[face.pos_i[0] - 1], positions[face.pos_i[1] - 1], positions[face.pos_i[2] - 1],
                     normals[face.nrm_i[0] - 1], normals[face.nrm_i[1] - 1], normals[face.nrm_i[2] - 1],
