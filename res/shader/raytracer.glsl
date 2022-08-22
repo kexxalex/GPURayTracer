@@ -20,7 +20,6 @@ struct Ray {
 	vec4 direction;
 };
 
-
 uniform mat4 CAMERA;
 
 
@@ -79,7 +78,7 @@ vec3 random_hemi(vec3 n, uint step) {
 vec3 intersect(vec3 rayPos, vec3 rayDir, vec3 p, vec3 u, vec3 v, vec3 N, float compDist, bool shadow) {
 	vec3 relative;
 	float rayDotN = dot(rayDir, N);
-	if ((!shadow && rayDotN <= 0.0) || rayDotN == 0.0) {
+	if (rayDotN <= 0.0) {
 		return vec3(0.0, 0.0, -1.0);
 	}
 
@@ -183,9 +182,9 @@ vec3 trace(vec3 rayPos, vec3 rayDir) {
 			vec3 diffuseClr = (prevLight + directLight) * alb;
 			vec3 emissionClr = emi_met.rgb;
 
-			if (step == 0) {
-				final_color += emissionClr;
-			}
+			// if (step == 0) {
+			//	final_color += emissionClr;
+			// }
 			path_color += prevColor * (diffuseClr + emissionClr + specularClr) * intensity;
 			if (dot(emissionClr, emissionClr) > 0 || !inShadow) {
 				final_color += path_color;
