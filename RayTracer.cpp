@@ -13,19 +13,19 @@ static glm::dvec2 MVP_rot(-0.7,-2.47);
 // static glm::dvec2 MVP_rot(-0.55,-2.88);
 static glm::dvec3 MVP_translation(-2.35978,3.87126,4.10415);
 
-static glm::fvec3 LIGHT_DIR = glm::normalize(glm::fvec3(1, -1, -1)) * 0.1f;
-static glm::fvec3 AMBIENT = glm::fvec3(0.8, 0.86, 0.9) * 0.0f;
+static glm::fvec3 LIGHT_DIR = glm::normalize(glm::fvec3(1, -1, -1)) * 0.8f;
+static glm::fvec3 AMBIENT = glm::fvec3(0.8, 0.86, 0.9) * 0.3f;
 // static glm::dvec3 MVP_translation(-2.1225,3.41671,3.85816);
 
 
 
-void finalRender(GLFWwindow *window, Scene &scene, int width, int height) {
+void finalRender(GLFWwindow *window, Scene &scene, int width, int height, unsigned int &sample) {
     glm::dmat4 ROT = glm::rotate(-MVP_rot.y, rot_y) * glm::rotate(-MVP_rot.x, rot_x);
     glm::fmat4 CAMERA = glm::translate(MVP_translation) * ROT;
     glm::fmat4 MVP = glm::perspectiveFov(glm::radians(90.0), (double)WIDTH, (double)HEIGHT, 0.03, 1024.0) * glm::rotate(-MVP_rot.x, rot_x) * glm::rotate(-MVP_rot.y, rot_y) * glm::translate(glm::dvec3(-1,-1,1)*MVP_translation);
-    int sample = 0;
     glfwSwapInterval(0);
     while (true) {
+        glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
         scene.render(width, height, false, CAMERA, ++sample);
         glfwSwapBuffers(window);
         glfwPollEvents();
@@ -135,7 +135,7 @@ void mainLoop(GLFWwindow *window, Scene &scene) {
         lastMoving = moving;
 
         if (glfwGetKey(window, GLFW_KEY_F2) == GLFW_PRESS) {
-            finalRender(window, scene, WIDTH, HEIGHT);
+            finalRender(window, scene, WIDTH, HEIGHT, sample);
         }
         glfwPollEvents();
     }

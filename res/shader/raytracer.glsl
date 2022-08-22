@@ -75,10 +75,15 @@ vec3 random_hemi(vec3 n, uint step) {
 	return dot(n, rvec) > 0 ? rvec : -rvec;
 }
 
+vec3 random_sphere(vec3 n, uint step) {
+	uint size = SIZE.x * SIZE.y * 4;
+	return rand_vec[((TEXEL.x * SIZE.y + TEXEL.y) * 5 + step + SAMPLE * 1123) % size].xyz;
+}
+
 vec3 intersect(vec3 rayPos, vec3 rayDir, vec3 p, vec3 u, vec3 v, vec3 N, float compDist, bool shadow) {
 	vec3 relative;
 	float rayDotN = dot(rayDir, N);
-	if (rayDotN <= 0.0) {
+	if ((!shadow && rayDotN <= 0.0) || rayDotN == 0.0) {
 		return vec3(0.0, 0.0, -1.0);
 	}
 
@@ -172,7 +177,7 @@ vec3 trace(vec3 rayPos, vec3 rayDir) {
 			float specDirectIntens = 0.0;
 
 			if (light_intens > 0) {
-				light_scatter = LIGHT_DIR + 0.01*random_hemi(LIGHT_DIR, step*7+3);
+				light_scatter = LIGHT_DIR + 0.0049*random_hemi(LIGHT_DIR, step*7+3);
 				inShadow = hit(rayPos, -light_scatter, current_tri);
 				directLight = inShadow ? 0.0 : max(dot(normal, -LIGHT_DIR), 0.0);
 				specDirectIntens = inShadow ? 0.0 : max(dot(refl_ray_dir, -LIGHT_DIR), 0.0);
@@ -182,9 +187,6 @@ vec3 trace(vec3 rayPos, vec3 rayDir) {
 			vec3 diffuseClr = (prevLight + directLight) * alb;
 			vec3 emissionClr = emi_met.rgb;
 
-			// if (step == 0) {
-			//	final_color += emissionClr;
-			// }
 			path_color += prevColor * (diffuseClr + emissionClr + specularClr) * intensity;
 			if (dot(emissionClr, emissionClr) > 0 || !inShadow) {
 				final_color += path_color;
@@ -205,7 +207,7 @@ vec3 trace(vec3 rayPos, vec3 rayDir) {
 			prevAlbedo = alb;
 
 			if (roughness > 0)
-				rayDir = normalize(refl_ray_dir + roughness * scatter);
+				rayDir = normalize(mix(refl_ray_dir, scatter, roughness));
 			else
 				rayDir = refl_ray_dir;
 		}
