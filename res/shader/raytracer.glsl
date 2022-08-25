@@ -20,6 +20,12 @@ struct Ray {
 	vec4 direction;
 };
 
+struct Material {
+	vec4 albedo;
+	vec4 specular;
+	vec4 emission_metallic;
+};
+
 uniform mat4 CAMERA;
 
 
@@ -48,14 +54,8 @@ layout(std430, binding=4) restrict readonly buffer randBuffer {
 };
 
 // Materials
-layout(std430, binding=12) restrict readonly buffer malb {
-	vec4 albedo[];
-};
-layout(std430, binding=13) restrict readonly buffer mspc {
-	vec4 specular[];
-};
-layout(std430, binding=14) restrict readonly buffer mem {
-	vec4 emission_metallic[];
+layout(std430, binding=6) restrict readonly buffer materialBuffer {
+	Material materials[];
 };
 
 uniform int COUNT;
@@ -71,19 +71,20 @@ ivec2 TEXEL;
 
 vec3 random_hemi(vec3 n, uint step) {
 	uint size = SIZE.x * SIZE.y * 4;
-	vec3 rvec = rand_vec[((TEXEL.x * SIZE.y + TEXEL.y) * 5 + step + SAMPLE * 1123) % size].xyz;
+	vec3 rvec = rand_vec[((TEXEL.x * SIZE.y + TEXEL.y) * 13 + step + SAMPLE * 1123) % size].xyz;
 	return dot(n, rvec) > 0 ? rvec : -rvec;
 }
 
 vec3 random_sphere(vec3 n, uint step) {
 	uint size = SIZE.x * SIZE.y * 4;
-	return rand_vec[((TEXEL.x * SIZE.y + TEXEL.y) * 5 + step + SAMPLE * 1123) % size].xyz;
+	return rand_vec[((TEXEL.x * SIZE.y + TEXEL.y) * 17 + step + SAMPLE * 1123) % size].xyz;
 }
 
 vec3 intersect(vec3 rayPos, vec3 rayDir, vec3 p, vec3 u, vec3 v, vec3 N, float compDist, bool shadow) {
 	vec3 relative;
 	float rayDotN = dot(rayDir, N);
 	if ((!shadow && rayDotN <= 0.0) || rayDotN == 0.0) {
+	// if (rayDotN <= 0.0) {
 		return vec3(0.0, 0.0, -1.0);
 	}
 
@@ -163,11 +164,11 @@ vec3 trace(vec3 rayPos, vec3 rayDir) {
 			vec3 normal = normalize(tri.normal0.xyz * (1.0-sec.x-sec.y) + tri.normal1.xyz * sec.x + tri.normal2.xyz * sec.y);
 			vec3 refl_ray_dir = reflect(rayDir, normal);
 
-			uint material = uint(ceil(tri.u.w));
+			Material material = materials[uint(ceil(tri.u.w))];
 
-			vec3 alb = albedo[material].rgb;
-			vec3 spc = specular[material].rgb;
-			vec4 emi_met = emission_metallic[material];
+			vec3 alb = material.albedo.rgb;
+			vec3 spc = material.specular.rgb;
+			vec4 emi_met = material.emission_metallic;
 
 			rayPos = rayPos + rayDir * sec.z;
 			float light_intens = length(LIGHT_DIR);
@@ -179,8 +180,8 @@ vec3 trace(vec3 rayPos, vec3 rayDir) {
 			if (light_intens > 0) {
 				light_scatter = LIGHT_DIR + 0.0049*random_hemi(LIGHT_DIR, step*7+3);
 				inShadow = hit(rayPos, -light_scatter, current_tri);
-				directLight = inShadow ? 0.0 : max(dot(normal, -LIGHT_DIR), 0.0);
-				specDirectIntens = inShadow ? 0.0 : max(dot(refl_ray_dir, -LIGHT_DIR), 0.0);
+				directLight = inShadow ? 0.0 : max(-dot(normal, LIGHT_DIR), 0.0);
+				specDirectIntens = inShadow ? 0.0 : max(-dot(refl_ray_dir, LIGHT_DIR), 0.0);
 			}
 
 			vec3 specularClr = specDirectIntens * spc;

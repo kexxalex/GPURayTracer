@@ -3,13 +3,14 @@
 #include "Scene.hpp"
 #include "Shader.hpp"
 #include <random>
-#include <GLFW/glfw3.h>
 
 
 #ifdef __linux__
 #define SSCANF sscanf
+#include <GLFW/glfw3.h>
 #elif _WIN32
 #define SSCANF sscanf_s
+#include "GLFW/glfw3.h"
 #endif
 
 
@@ -141,17 +142,12 @@ void Scene::createTrianglesBuffers() {
 }
 
 void Scene::createMaterialsBuffers() {
-    unsigned int materials = m_materials.size();
+    unsigned int material_count = m_materials.size();
 
-    MappedBuffer<glm::fvec4> mapped_albedo(computeData.albedo, materials);
-    MappedBuffer<glm::fvec4> mapped_spec(computeData.specular, materials);
-    MappedBuffer<glm::fvec4> mapped_EM(computeData.emission_metallic, materials);
+    MappedBuffer<Material> mapped_material(computeData.materialBuffer, material_count);
 
-    for (unsigned int index = 0; index < materials; ++index) {
-        const Material &mat = m_materials[index];
-        mapped_albedo[index] = glm::fvec4(mat.albedo, 1.0f);
-        mapped_spec[index] = glm::fvec4(mat.specular, 1.0f);
-        mapped_EM[index] = glm::fvec4(mat.emission, mat.metallic);
+    for (unsigned int index = 0; index < material_count; ++index) {
+        mapped_material[index] = m_materials[index];
     }
 }
 
@@ -166,9 +162,7 @@ void Scene::createRTCSData() {
 void Scene::bindBuffer() {
     glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 3, computeData.triangleBuffer);
 
-    glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 12, computeData.albedo);
-    glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 13, computeData.specular);
-    glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 14, computeData.emission_metallic);
+    glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 6, computeData.materialBuffer);
 }
 
 void Scene::finalizeObjects() {
@@ -511,11 +505,11 @@ bool Scene::readWFMaterial(const std::string &material_name) {
                 SSCANF(line.c_str(), "%*s %f %f %f", &material.specular.r, &material.specular.g, &material.specular.b);
 
             else if (line.compare(0, 2, "Ke") == 0)
-                SSCANF(line.c_str(), "%*s %f %f %f", &material.emission.r, &material.emission.g, &material.emission.b);
+                SSCANF(line.c_str(), "%*s %f %f %f", &material.emission_metallic.r, &material.emission_metallic.g, &material.emission_metallic.b);
 
             else if (line.compare(0, 2, "Ns") == 0) {
-                SSCANF(line.c_str(), "%*s %f", &material.metallic);
-                material.metallic /= 1000.0f;
+                SSCANF(line.c_str(), "%*s %f", &material.emission_metallic.a);
+                material.emission_metallic.a /= 1000.0f;
             }
         }
     }

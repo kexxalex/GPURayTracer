@@ -6,7 +6,7 @@
 struct st_RTCS_data {
     ~st_RTCS_data() {
         glDeleteTextures(2, &renderTarget);
-        glDeleteBuffers(5, &visibility);
+        glDeleteBuffers(3, &visibility);
     }
     bool initialized{false};
     glm::ivec2 resolution{0, 0};
@@ -18,10 +18,6 @@ struct st_RTCS_data {
     GLuint renderTargetLow{0};
 
     GLuint visibility{0};
-
     GLuint triangleBuffer{0};
-
-    GLuint albedo{0};
-    GLuint specular{0};
-    GLuint emission_metallic{0};
+    GLuint materialBuffer{0};
 };

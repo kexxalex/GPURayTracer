@@ -13,6 +13,12 @@ struct Triangle {
 	vec4 normal2;
 };
 
+struct Material {
+	vec4 albedo;
+	vec4 specular;
+	vec4 emission_metallic;
+};
+
 struct Vertex {
 	vec4 position;
 	vec4 normal;
@@ -32,14 +38,8 @@ layout(std430, binding=5) restrict writeonly buffer vertexBuffer {
 
 
 // Materials
-layout(std430, binding=12) restrict readonly buffer malb {
-	vec4 albedo[];
-};
-layout(std430, binding=13) restrict readonly buffer mspc {
-	vec4 specular[];
-};
-layout(std430, binding=14) restrict readonly buffer mem {
-	vec4 emission_metallic[];
+layout(std430, binding=6) restrict readonly buffer materialBuffer {
+	Material materials[];
 };
 
 uniform int COUNT;
@@ -48,23 +48,23 @@ void main(void) {
 	uint triID = uint(gl_GlobalInvocationID.x);
 
 	Triangle tri = triangles[triID];
-	uint material = uint(ceil(tri.u.w));
+	Material material = materials[uint(ceil(tri.u.w))];
 
 	vertices[3*triID].position = vec4(tri.position.xyz, 1.0);
 	vertices[3*triID].normal = vec4(tri.normal0.xyz, 0);
-	vertices[3*triID].albedo = vec4(albedo[material].rgb, 0);
-	vertices[3*triID].specular = vec4(specular[material].rgb, 0);
-	vertices[3*triID].emission = vec4(emission_metallic[material].rgb, 0);
+	vertices[3*triID].albedo = vec4(material.albedo.rgb, 0);
+	vertices[3*triID].specular = vec4(material.specular.rgb, 0);
+	vertices[3*triID].emission = vec4(material.emission_metallic.rgb, 0);
 
 	vertices[3*triID+1].position = vec4(tri.position.xyz + tri.u.xyz, 1.0);
 	vertices[3*triID+1].normal = vec4(tri.normal1.xyz, 0);
-	vertices[3*triID+1].albedo = vec4(albedo[material].rgb, 0);
-	vertices[3*triID+1].specular = vec4(specular[material].rgb, 0);
-	vertices[3*triID+1].emission = vec4(emission_metallic[material].rgb, 0);
+	vertices[3*triID+1].albedo = vec4(material.albedo.rgb, 0);
+	vertices[3*triID+1].specular = vec4(material.specular.rgb, 0);
+	vertices[3*triID+1].emission = vec4(material.emission_metallic.rgb, 0);
 
 	vertices[3*triID+2].position = vec4(tri.position.xyz + tri.v.xyz, 1.0);
 	vertices[3*triID+2].normal = vec4(tri.normal2.xyz, 0);
-	vertices[3*triID+2].albedo = vec4(albedo[material].rgb, 0);
-	vertices[3*triID+2].specular = vec4(specular[material].rgb, 0);
-	vertices[3*triID+2].emission = vec4(emission_metallic[material].rgb, 0);
+	vertices[3*triID+2].albedo = vec4(material.albedo.rgb, 0);
+	vertices[3*triID+2].specular = vec4(material.specular.rgb, 0);
+	vertices[3*triID+2].emission = vec4(material.emission_metallic.rgb, 0);
 }

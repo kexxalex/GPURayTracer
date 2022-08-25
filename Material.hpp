@@ -3,9 +3,9 @@
 #include <glm/glm.hpp>
 
 struct Material {
-    glm::fvec3 albedo;
-    glm::fvec3 specular;
+    Material &operator=(const Material &mat) = default;
+    glm::fvec4 albedo;
+    glm::fvec4 specular;
 
-    glm::fvec3 emission;
-    float metallic{0.0f};
+    glm::fvec4 emission_metallic;
 };
