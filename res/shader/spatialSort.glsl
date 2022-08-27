@@ -54,7 +54,7 @@ bool isVisible(int caster, int receiver) {
 	);
 }
 
-void main(void) {
+void main() {
 	ivec2 texel = ivec2(gl_GlobalInvocationID.x, 0);
 	for (int recvID=0; recvID < COUNT; ++recvID) {
 		if (texel.x != recvID && isVisible(texel.x, recvID)) {

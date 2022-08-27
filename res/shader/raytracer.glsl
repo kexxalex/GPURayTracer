@@ -65,9 +65,9 @@ uniform vec3 LIGHT_DIR;
 uniform vec3 AMBIENT;
 
 const vec3 LUMA = vec3(0.299, 0.587, 0.114);
+const float PI = 3.141592653589793;
 uvec2 SIZE;
 ivec2 TEXEL;
-
 
 vec3 random_hemi(vec3 n, uint step) {
 	uint size = SIZE.x * SIZE.y * 4;
@@ -81,16 +81,15 @@ vec3 random_sphere(vec3 n, uint step) {
 }
 
 vec3 intersect(vec3 rayPos, vec3 rayDir, vec3 p, vec3 u, vec3 v, vec3 N, float compDist, bool shadow) {
-	vec3 relative;
 	float rayDotN = dot(rayDir, N);
-	if ((!shadow && rayDotN <= 0.0) || rayDotN == 0.0) {
-	// if (rayDotN <= 0.0) {
+	if (rayDotN == 0.0 || (!shadow && rayDotN < 0.0)) {
 		return vec3(0.0, 0.0, -1.0);
 	}
 
 	float Dinv = -1.0/rayDotN;
 	vec3 delta = (rayPos-p)*Dinv;
-	
+
+	vec3 relative;
 	relative.z = dot(N, delta);
 	if (relative.z < 0 || (compDist >= 0.0 && relative.z > compDist)) {
 		return vec3(0.0, 0.0, -1.0);
@@ -139,7 +138,10 @@ vec3 trace(vec3 rayPos, vec3 rayDir) {
 	
 	int avoid_tri = -1;
 
-	for (int step=0; step < max(RECURSION, 1); ++step) {
+	bool escaped = false;
+
+	uint step = 0;
+	for (; step < max(RECURSION, 1); ++step) {
 		vec3 current_intersection = vec3(0.0, 0.0, -1.0);
 		int current_tri = -1;
 		bool useVis = step > 0;
@@ -178,10 +180,10 @@ vec3 trace(vec3 rayPos, vec3 rayDir) {
 			float specDirectIntens = 0.0;
 
 			if (light_intens > 0) {
-				light_scatter = LIGHT_DIR + 0.0049*random_hemi(LIGHT_DIR, step*7+3);
+				light_scatter = normalize(LIGHT_DIR + 0.0049*random_hemi(LIGHT_DIR, step*7+3));
 				inShadow = hit(rayPos, -light_scatter, current_tri);
-				directLight = inShadow ? 0.0 : max(-dot(normal, LIGHT_DIR), 0.0);
-				specDirectIntens = inShadow ? 0.0 : max(-dot(refl_ray_dir, LIGHT_DIR), 0.0);
+				directLight = inShadow ? 0.0 : max(-dot(normal, light_scatter), 0.0)*light_intens;
+				specDirectIntens = inShadow ? 0.0 : max(-dot(refl_ray_dir, light_scatter), 0.0)*light_intens;
 			}
 
 			vec3 specularClr = specDirectIntens * spc;
@@ -213,26 +215,32 @@ vec3 trace(vec3 rayPos, vec3 rayDir) {
 				rayDir = refl_ray_dir;
 		}
 		else {
+			escaped = true;
 			break;
 		}
 	}
-	if (avoid_tri >= 0)
-		final_color += path_color*AMBIENT + (prevAlbedo + prevSpecular*prevLight)*AMBIENT*intensity;
-	else
-		final_color += AMBIENT;
+	if (escaped) {
+		if (step == 0)
+			final_color = AMBIENT;
+		else
+			final_color += path_color*AMBIENT + (prevAlbedo + prevSpecular*prevLight)*AMBIENT*intensity;
+	}
 	
 	return final_color;
 }
 
 void main(void) {
 	SIZE = imageSize(img_output);
+	float inv_width = 1.0 / SIZE.x;
 	float inv_height = 1.0 / SIZE.y;
 	TEXEL = ivec2(gl_GlobalInvocationID.xy);
 
 	vec4 color = vec4(0.0, 0.0, 0.0, 1.0);
 	Ray ray;
-	ray.position = vec4(0, 0, 0, 1.0);
-	vec3 dtctor = vec3((TEXEL.x - 0.5*SIZE.x)*inv_height, TEXEL.y*1.0f*inv_height - 0.5, 0.5);
+	float x = TEXEL.x * inv_width - 0.5;
+	float y = TEXEL.y * inv_height - 0.5;
+	ray.position = vec4(0.125*x*SIZE.x/SIZE.y, 0.125*y, 0.125*sqrt(1-x*x-y*y), 1.0);
+	vec3 dtctor = vec3((TEXEL.x - 0.5*SIZE.x + 0.5)*inv_height, (TEXEL.y + 0.5)*1.0f*inv_height - 0.5, 0.5);
 	ray.direction = vec4(normalize(dtctor - ray.position.xyz), 0.0);
 	color.rgb = trace((CAMERA * ray.position).xyz, normalize(CAMERA * ray.direction).xyz);
 

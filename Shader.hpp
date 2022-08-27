@@ -1,10 +1,15 @@
 #pragma once
 
-#include <GL/glew.h>
 #include <string>
 #include <string_view>
 #include <unordered_map>
 #include <glm/glm.hpp>
+
+#ifdef __linux__
+#include <GL/glew.h>
+#elif _WIN32
+#include "GL/glew.h"
+#endif
 
 bool loadShaderProgram(const std::string&& filename, GLint shaderType, GLuint &shaderID);
 

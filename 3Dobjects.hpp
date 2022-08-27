@@ -2,7 +2,12 @@
 
 #include <string>
 #include <vector>
+
+#ifdef __linux__
 #include <glm/glm.hpp>
+#elif _WIN32
+#include "glm/glm.hpp"
+#endif
 
 
 struct Vertex {

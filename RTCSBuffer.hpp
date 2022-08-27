@@ -1,6 +1,10 @@
 #pragma once
 
+#ifdef __linux__
 #include <GL/glew.h>
+#elif _WIN32
+#include "GL/glew.h"
+#endif
 
 // RayTracer ComputeShader Data
 struct st_RTCS_data {

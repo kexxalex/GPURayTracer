@@ -1,6 +1,10 @@
 #pragma once
 
+#ifdef __linux__
 #include <glm/glm.hpp>
+#elif _WIN32
+#include "glm/glm.hpp"
+#endif
 
 struct Material {
     Material &operator=(const Material &mat) = default;

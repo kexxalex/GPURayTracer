@@ -1,21 +1,26 @@
 #include <iostream>
 #include <fstream>
+#include "Scene.hpp"
+
+#ifdef __linux__
 #include <GL/glew.h>
 #include <GLFW/glfw3.h>
-#include "Scene.hpp"
 #include <glm/gtx/transform.hpp>
+#elif _WIN32
+#include "GL/glew.h"
+#include "GLFW/glfw3.h"
+#include "glm/gtx/transform.hpp"
+#endif
 
 static constexpr glm::dvec3 rot_x(1.0f, 0.0f, 0.0f);
 static constexpr glm::dvec3 rot_y(0.0f, 1.0f, 0.0f);
 static int WIDTH(3440), HEIGHT(1440);
 
 static glm::dvec2 MVP_rot(-0.7,-2.47);
-// static glm::dvec2 MVP_rot(-0.55,-2.88);
 static glm::dvec3 MVP_translation(-2.35978,3.87126,4.10415);
 
-static glm::fvec3 LIGHT_DIR = glm::normalize(glm::fvec3(1, -1, -1)) * 0.8f;
-static glm::fvec3 AMBIENT = glm::fvec3(0.8, 0.86, 0.9) * 0.3f;
-// static glm::dvec3 MVP_translation(-2.1225,3.41671,3.85816);
+static glm::fvec3 LIGHT_DIR = glm::normalize(glm::fvec3(0.0, -2.0, 1.0)) * 1.0f;
+static glm::fvec3 AMBIENT = glm::fvec3(0.8, 0.86, 0.9) * 1.0f;
 
 
 
@@ -115,17 +120,17 @@ void mainLoop(GLFWwindow *window, Scene &scene) {
             glm::fmat4 MVP = glm::perspectiveFov(glm::radians(90.0), (double)WIDTH, (double)HEIGHT, 0.03, 1024.0) * glm::rotate(-MVP_rot.x, rot_x) * glm::rotate(-MVP_rot.y, rot_y) * glm::translate(glm::dvec3(-1,-1,1)*MVP_translation);
             glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
             if (!moving) {
+                sample = 0;
                 glfwSetWindowTitle(window, ("GPU RT - Samples: " + std::to_string(sample+1)).c_str());
                 scene.render(WIDTH, HEIGHT, false, CameraTransform, sample++);
             }
             else if (middleBtn) {
-                sample = 0;
-                glfwSetWindowTitle(window, "GPU RT - OpenGL Phong");
-                scene.forwardRender(MVP, MVP_translation);
-            }
-            else {
                 glfwSetWindowTitle(window, ("GPU RT - Samples: " + std::to_string(sample+1)).c_str());
                 scene.render(WIDTH, HEIGHT, true, CameraTransform, sample++);
+            }
+            else {
+                glfwSetWindowTitle(window, "GPU RT - OpenGL Phong");
+                scene.forwardRender(MVP, MVP_translation);
             }
             if (glfwGetKey(window, GLFW_KEY_LEFT_ALT) == GLFW_PRESS) {
                 scene.renderWireframe(MVP, MVP_translation);
@@ -142,7 +147,8 @@ void mainLoop(GLFWwindow *window, Scene &scene) {
 }
 
 
-int main() {
+int main(int argc, char* args[]) {
+    system("echo $PWD");
     std::string name;
 
     std::cout << "Wavefront File: ";
