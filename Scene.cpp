@@ -18,24 +18,24 @@
 
 #pragma pack(push, 1)
 struct st_BMP_HEADER {
-    unsigned char bfType[2]{ 'B', 'M'};
-    unsigned int bfSize{ 0 };
-    unsigned int bfReserved{ 0 };
-    unsigned int bfOffBytes{ 54 };
+    uint8_t bfType[2]{ 'B', 'M'};
+    uint32_t bfSize{ 0 };
+    uint32_t bfReserved{ 0 };
+    uint32_t bfOffBytes{ 54 };
 };
 
 struct st_BMP_INFO_HEADER {
-    unsigned int biSize{ 40 };
-    int biWidth{ 0 };
-    int biHeight{ 0 };
-    unsigned short biPlanes{ 1 };
-    unsigned short biBitCount{ 24 };
-    unsigned int biCompression{ 0 };
-    unsigned int biSizeImage{ 0 };
-    int biXPixelsPerMeter{ 0 };
-    int biYPixelsPerMeter{ 0 };
-    unsigned int biClrUsed{ 1 << 24 };
-    unsigned int biClrImportant{ 0 };
+    uint32_t biSize{ 40 };
+    int32_t biWidth{ 0 };
+    int32_t biHeight{ 0 };
+    uint16_t biPlanes{ 1 };
+    uint16_t biBitCount{ 24 };
+    uint32_t biCompression{ 0 };
+    uint32_t biSizeImage{ 0 };
+    int32_t biXPixelsPerMeter{ 0 };
+    int32_t biYPixelsPerMeter{ 0 };
+    uint32_t biClrUsed{ 1 << 24 };
+    uint32_t biClrImportant{ 0 };
 };
 #pragma pack(pop)
 
@@ -120,8 +120,8 @@ void Scene::createTrianglesBuffers() {
     MappedBuffer<Triangle> mapped_triangles(computeData.triangleBuffer, computeData.triangles);
 
     unsigned int index = 0;
-    for (const Object &obj: m_objects) {
-        for (const Triangle &tri: obj.triangles) {
+    for (Object &obj: m_objects) {
+        for (Triangle &tri: obj.triangles) {
             mapped_triangles[index++] = tri;
         }
     }
@@ -184,6 +184,8 @@ void Scene::finalizeObjects() {
 }
 
 void Scene::generateRandomUnitVectors() {
+    static std::default_random_engine generator;
+    static std::uniform_real_distribution<double> angleDist(0.0, std::numbers::pi);
     long new_random_size = computeData.resolution.x*computeData.resolution.y*(long)4;
 
     static MappedBuffer<glm::fvec4> rndMap(randomBuffer, 0, GL_MAP_PERSISTENT_BIT | GL_MAP_COHERENT_BIT | GL_MAP_WRITE_BIT, GL_WRITE_ONLY);
@@ -200,8 +202,6 @@ void Scene::generateRandomUnitVectors() {
     if (!rndMap.ptr)
         return;
 
-    std::default_random_engine generator;
-    std::uniform_real_distribution<double> angleDist(0.0, std::numbers::pi);
     unsigned index = 0;
     for (int x=0; x < computeData.resolution.x; ++x) {
         for (int y=0; y < computeData.resolution.y; ++y) {
@@ -243,6 +243,8 @@ void Scene::adaptResolution(const glm::ivec2 &newRes) {
         glTextureStorage2D(computeData.renderTarget, 1, GL_RGBA32F, newRes.x, newRes.y);
         glTextureParameteri(computeData.renderTarget, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
         glTextureParameteri(computeData.renderTarget, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+        glTextureParameteri(computeData.renderTarget, GL_TEXTURE_WRAP_S, GL_CLAMP);
+        glTextureParameteri(computeData.renderTarget, GL_TEXTURE_WRAP_T, GL_CLAMP);
 
         glCreateTextures(GL_TEXTURE_2D, 1, &computeData.renderTargetLow);
         glTextureStorage2D(computeData.renderTargetLow, 1, GL_RGBA32F, (int)(180.0/newRes.y*newRes.x), 180); // >> 3
@@ -302,6 +304,9 @@ void Scene::render(int width, int height, bool moving, const glm::fmat4 &Camera,
         glBindImageTexture(0, computeData.renderTarget, 0, GL_FALSE, 0, GL_WRITE_ONLY, GL_RGBA32F);
         glBindTextureUnit(0, computeData.renderTarget);
     }
+
+    if (!moving && sample > 0 && sample % 4 == 0)
+        generateRandomUnitVectors();
 
     traceScene(width, height, Camera, recursion, sample);
 
@@ -502,14 +507,16 @@ bool Scene::readWFMaterial(const std::string &material_name) {
                 SSCANF(line.c_str(), "%*s %f %f %f", &material.albedo.r, &material.albedo.g, &material.albedo.b);
 
             else if (line.compare(0, 2, "Ks") == 0)
-                SSCANF(line.c_str(), "%*s %f %f %f", &material.specular.r, &material.specular.g, &material.specular.b);
+                SSCANF(line.c_str(), "%*s %f %f %f", &material.specular_roughness.r, &material.specular_roughness.g, &material.specular_roughness.b);
 
             else if (line.compare(0, 2, "Ke") == 0)
-                SSCANF(line.c_str(), "%*s %f %f %f", &material.emission_metallic.r, &material.emission_metallic.g, &material.emission_metallic.b);
+                SSCANF(line.c_str(), "%*s %f %f %f", &material.emission_ior.r, &material.emission_ior.g, &material.emission_ior.b);
 
+            else if (line.compare(0, 2, "Ni") == 0) {
+                SSCANF(line.c_str(), "%*s %f", &material.emission_ior.a);
+            }
             else if (line.compare(0, 2, "Ns") == 0) {
-                SSCANF(line.c_str(), "%*s %f", &material.emission_metallic.a);
-                material.emission_metallic.a /= 1000.0f;
+                SSCANF(line.c_str(), "%*s %f", &material.specular_roughness.a);
             }
         }
     }

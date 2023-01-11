@@ -19,8 +19,8 @@ static int WIDTH(3440), HEIGHT(1440);
 static glm::dvec2 MVP_rot(-0.7,-2.47);
 static glm::dvec3 MVP_translation(-2.35978,3.87126,4.10415);
 
-static glm::fvec3 LIGHT_DIR = glm::normalize(glm::fvec3(0.0, -2.0, 1.0)) * 1.0f;
-static glm::fvec3 AMBIENT = glm::fvec3(0.8, 0.86, 0.9) * 1.0f;
+static glm::fvec3 LIGHT_DIR = glm::normalize(glm::fvec3(0.0, -1.0, 2.0)) * 0.3f;
+static glm::fvec3 AMBIENT = glm::fvec3(1.0, 0.96, 0.9) * M_PIf * 0.3f;
 
 
 
@@ -29,15 +29,18 @@ void finalRender(GLFWwindow *window, Scene &scene, int width, int height, unsign
     glm::fmat4 CAMERA = glm::translate(MVP_translation) * ROT;
     glm::fmat4 MVP = glm::perspectiveFov(glm::radians(90.0), (double)WIDTH, (double)HEIGHT, 0.03, 1024.0) * glm::rotate(-MVP_rot.x, rot_x) * glm::rotate(-MVP_rot.y, rot_y) * glm::translate(glm::dvec3(-1,-1,1)*MVP_translation);
     glfwSwapInterval(0);
+    double t0 = glfwGetTime();
     while (true) {
         glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
         scene.render(width, height, false, CAMERA, ++sample);
         glfwSwapBuffers(window);
         glfwPollEvents();
         glfwSetWindowTitle(window, ("GPU RT - Samples: " + std::to_string(sample+1)).c_str());
-        if (glfwGetKey(window, GLFW_KEY_F3) == GLFW_PRESS)
+        if (glfwGetKey(window, GLFW_KEY_F3) == GLFW_PRESS || sample == 127)
             break;
     }
+    double sps = (sample+1) / (glfwGetTime() - t0);
+    std::cout << sps << std::endl;
     glfwSwapInterval(1);
     glfwSetWindowTitle(window, ("GPU RT - Samples: " + std::to_string(sample+1) + " - Finished").c_str());
     scene.exportRAW("./res/final/final.bytes");

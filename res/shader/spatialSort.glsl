@@ -8,6 +8,8 @@ struct Triangle {
 	vec4 u;
 	vec4 v;
 
+	vec4 N;
+
 	vec4 normal0;
 	vec4 normal1;
 	vec4 normal2;

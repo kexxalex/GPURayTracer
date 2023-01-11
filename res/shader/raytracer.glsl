@@ -10,6 +10,8 @@ struct Triangle {
 	vec4 u;
 	vec4 v;
 
+	vec4 N;
+
 	vec4 normal0;
 	vec4 normal1;
 	vec4 normal2;
@@ -22,8 +24,8 @@ struct Ray {
 
 struct Material {
 	vec4 albedo;
-	vec4 specular;
-	vec4 emission_metallic;
+	vec4 specular_roughness;
+	vec4 emission_ior;
 };
 
 uniform mat4 CAMERA;
@@ -33,9 +35,7 @@ layout(rgba32f, binding=0) restrict uniform image2D img_output;
 
 
 
-layout(std430, binding=1) restrict readonly buffer visBuffer {
-	int visibility[];
-};
+layout(std430, binding=1) restrict readonly buffer visBuffer { int visibility[]; };
 
 
 layout(std430, binding=2) restrict readonly buffer rayBuffer {
@@ -66,8 +66,11 @@ uniform vec3 AMBIENT;
 
 const vec3 LUMA = vec3(0.299, 0.587, 0.114);
 const float PI = 3.141592653589793;
+const float INV_PI = 1.0/3.141592653589793;
 uvec2 SIZE;
 ivec2 TEXEL;
+
+float LIGHT_INTENS;
 
 vec3 random_hemi(vec3 n, uint step) {
 	uint size = SIZE.x * SIZE.y * 4;
@@ -80,61 +83,86 @@ vec3 random_sphere(vec3 n, uint step) {
 	return rand_vec[((TEXEL.x * SIZE.y + TEXEL.y) * 17 + step + SAMPLE * 1123) % size].xyz;
 }
 
-vec3 intersect(vec3 rayPos, vec3 rayDir, vec3 p, vec3 u, vec3 v, vec3 N, float compDist, bool shadow) {
-	float rayDotN = dot(rayDir, N);
-	if (rayDotN == 0.0 || (!shadow && rayDotN < 0.0)) {
-		return vec3(0.0, 0.0, -1.0);
-	}
+bool intersect(in vec3 rayPos, in vec3 rayDir, in vec3 triPos, in vec3 u, in vec3 v, in vec3 n, inout vec3 isec) {
+	float determinant = dot(rayDir, n);
+	// Backface culling
+	if (determinant <= 0.0)
+		return false;
 
-	float Dinv = -1.0/rayDotN;
-	vec3 delta = (rayPos-p)*Dinv;
-
-	vec3 relative;
-	relative.z = dot(N, delta);
-	if (relative.z < 0 || (compDist >= 0.0 && relative.z > compDist)) {
-		return vec3(0.0, 0.0, -1.0);
-	}
+	vec3 delta = triPos - rayPos;
+	float relative_depth = dot(n, delta);
+	if (relative_depth <= 0)
+		return false;
 	
+	// discard if the previous intersection is closer
+	if (isec.z >= 0.0 && relative_depth > isec.z * determinant)
+		return false;
+
+	// some linear algebra to solve inverse(u, v, rayDir) * delta
 	vec3 subDet = cross(rayDir, delta);
-	
-	relative.x = dot(subDet, v);
-	relative.y = -dot(subDet, u);
-	
-	if (relative.x >= 0.0 && relative.y >= 0.0 && relative.x + relative.y <= 1.0) {
-		return relative;
-	}
-	return vec3(0.0, 0.0, -1.0);
+	vec3 relative = vec3(dot(subDet, v), -dot(subDet, u), relative_depth);
+
+	if (relative.x <= 0.0 || relative.y <= 0.0 || relative.x + relative.y >= determinant)
+		return false;
+
+	float IDet = 1.0 / determinant;
+	isec = relative * IDet;
+	return true;
+}
+
+bool intersectShadow(in vec3 rayPos, in vec3 rayDir, in vec3 triPos, in vec3 u, in vec3 v, in vec3 n) {
+	float determinant = -dot(rayDir, n);
+	// Frontface culling
+	if (determinant <= 0.0)
+		return false;
+
+	vec3 delta = rayPos - triPos;
+	float relative_depth = dot(n, delta);
+	if (relative_depth <= 0)
+		return false;
+
+	// some linear algebra to solve inverse(u, v, rayDir) * delta
+	vec3 subDet = cross(rayDir, delta);
+	vec2 relative = vec2(dot(subDet, v), -dot(subDet, u));
+
+	return (relative.x >= 0.0 && relative.y >= 0.0 && relative.x + relative.y <= determinant);
 }
 
 
 bool hit(vec3 rayPos, vec3 rayDir, int avoid) {
 	for (int triID = 0; triID < COUNT; ++triID) {
-		if (triID == avoid) {
+		if (triID == avoid)
 			continue;
-		}
 
 		Triangle tri = triangles[triID];
-		vec3 sec = intersect(rayPos, rayDir, tri.position.xyz, tri.u.xyz, tri.v.xyz, cross(tri.v.xyz, tri.u.xyz), -1.0, true);
-		if (sec.z > 0.0) {
+		if (intersectShadow(rayPos, rayDir, tri.position.xyz, tri.u.xyz, tri.v.xyz, tri.N.xyz))
 			return true;
-		}
 	}
 	return false;
+}
+
+float getTransmission(float cosThetaI, float etaI, float etaT) {
+	float sinThetaI = sqrt(1.0 - cosThetaI*cosThetaI);
+	float sinThetaT = etaI / etaT * sinThetaI;
+	if (sinThetaT >= 1.0)
+		return 1.0;
+	
+	float cosThetaT = sqrt(1.0 - sinThetaT*sinThetaT);
+	vec2 reflectance = vec2(
+		(etaT * cosThetaI - etaI * cosThetaT) / (etaT * cosThetaI + etaI * cosThetaT),
+		(etaI * cosThetaI - etaT * cosThetaT) / (etaI * cosThetaI + etaT * cosThetaT)
+	);
+	return dot(reflectance, reflectance) * 0.5;
 }
 
 
 vec3 trace(vec3 rayPos, vec3 rayDir) {
 	vec3 final_color = vec3(0.0);
-	vec3 path_color = vec3(0.0);
+	vec3 path_color = vec3(1.0);
 
-	vec3 prevSpecular = vec3(0.0);
-	vec3 prevAlbedo = vec3(0.0);
 	vec3 prevColor = vec3(1.0);
-	float prevMetall = 0.0;
-	float prevRoughness = 0.0;
 
 	float intensity = 1.0;
-	float prevLight = 0.0;
 	
 	int avoid_tri = -1;
 
@@ -144,92 +172,92 @@ vec3 trace(vec3 rayPos, vec3 rayDir) {
 	for (; step < max(RECURSION, 1); ++step) {
 		vec3 current_intersection = vec3(0.0, 0.0, -1.0);
 		int current_tri = -1;
-		bool useVis = step > 0;
-		for (int visID = 0; visID < COUNT; ++visID) {
-			int triID = useVis ? visibility[avoid_tri * COUNT + visID] : visID;
-			if (triID == avoid_tri) {
-				break;
-			}
+		for (int triID = 0; triID < COUNT; ++triID) {
+			// int triID = (step > 0) ? visibility[avoid_tri * COUNT + visID] : visID;
+			if (triID == avoid_tri)
+				continue;
 
 			Triangle tri = triangles[triID];
 			
-			vec3 sec = intersect(rayPos, rayDir, tri.position.xyz, tri.u.xyz, tri.v.xyz, cross(tri.v.xyz, tri.u.xyz), current_intersection.z, false);
-			if (sec.z > 0.0) {
-				current_intersection = sec;
+			if (intersect(rayPos, rayDir, tri.position.xyz, tri.u.xyz, tri.v.xyz, tri.N.xyz, current_intersection))
 				current_tri = triID;
-			}
 		}
-	
-		if (current_tri >= 0) {
-			Triangle tri = triangles[current_tri];
-			vec3 sec = current_intersection;
-			vec3 normal = normalize(tri.normal0.xyz * (1.0-sec.x-sec.y) + tri.normal1.xyz * sec.x + tri.normal2.xyz * sec.y);
-			vec3 refl_ray_dir = reflect(rayDir, normal);
 
-			Material material = materials[uint(ceil(tri.u.w))];
-
-			vec3 alb = material.albedo.rgb;
-			vec3 spc = material.specular.rgb;
-			vec4 emi_met = material.emission_metallic;
-
-			rayPos = rayPos + rayDir * sec.z;
-			float light_intens = length(LIGHT_DIR);
-			vec3 light_scatter = vec3(0.0);
-			bool inShadow = true;
-			float directLight = 0.0;
-			float specDirectIntens = 0.0;
-
-			if (light_intens > 0) {
-				light_scatter = normalize(LIGHT_DIR + 0.0049*random_hemi(LIGHT_DIR, step*7+3));
-				inShadow = hit(rayPos, -light_scatter, current_tri);
-				directLight = inShadow ? 0.0 : max(-dot(normal, light_scatter), 0.0)*light_intens;
-				specDirectIntens = inShadow ? 0.0 : max(-dot(refl_ray_dir, light_scatter), 0.0)*light_intens;
-			}
-
-			vec3 specularClr = specDirectIntens * spc;
-			vec3 diffuseClr = (prevLight + directLight) * alb;
-			vec3 emissionClr = emi_met.rgb;
-
-			path_color += prevColor * (diffuseClr + emissionClr + specularClr) * intensity;
-			if (dot(emissionClr, emissionClr) > 0 || !inShadow) {
-				final_color += path_color;
-				path_color = vec3(0.0);
-			}
-			prevColor = alb + spc;
-			avoid_tri = current_tri;
-			if (dot(prevColor, prevColor) == 0)
-				break;
-
-			intensity *= dot(LUMA, spc+alb);
-			prevLight = max(-dot(rayDir, normal), 0.0);
-
-			float roughness = dot(LUMA, alb);
-			vec3 scatter = random_hemi(normal, step);
-			prevSpecular = spc;
-			prevMetall = emi_met.a;
-			prevAlbedo = alb;
-
-			if (roughness > 0)
-				rayDir = normalize(mix(refl_ray_dir, scatter, roughness));
-			else
-				rayDir = refl_ray_dir;
-		}
-		else {
+		if (current_tri < 0) {
 			escaped = true;
 			break;
 		}
+	
+		avoid_tri = current_tri;
+		Triangle tri = triangles[current_tri];
+		Material material = materials[uint(ceil(tri.u.w))];
+
+		vec3 sec = current_intersection;
+		vec3 normal = normalize(tri.normal0.xyz * (1.0-sec.x-sec.y) + tri.normal1.xyz * sec.x + tri.normal2.xyz * sec.y);
+		vec3 refl_ray_dir = reflect(rayDir, normal);
+
+		vec3 albedo = material.albedo.rgb;
+		vec3 specular = material.specular_roughness.rgb;
+		float scattering = material.specular_roughness.a;
+		vec3 emission = material.emission_ior.rgb;
+		float ior = material.emission_ior.a;
+
+		rayPos = rayPos + rayDir * sec.z;
+		bool inShadow = true;
+		float directLight = 0.0;
+		float specDirectIntens = 0.0;
+
+		if (LIGHT_INTENS > 0) {
+			vec3 light_scatter = normalize(LIGHT_DIR + 0.0049*random_hemi(LIGHT_DIR, step*7+3));
+			float normal_dot_light = max(-dot(normal, light_scatter), 0.0);
+			if (normal_dot_light > 0 && !hit(rayPos, -light_scatter, current_tri)) {
+				inShadow = false;
+				directLight = normal_dot_light*LIGHT_INTENS;
+				specDirectIntens = max(-dot(refl_ray_dir, light_scatter), 0.0)*LIGHT_INTENS;
+			}
+		}
+
+		float specIntens = (max(dot(refl_ray_dir, normal), 0.0) + specDirectIntens)*(1.0-scattering);
+
+		path_color *= (albedo*max(1.0-specIntens, 0.0) + specular*specIntens + emission) * intensity * (1.0 + directLight);
+		if (emission.r != 0 || emission.g != 0 || emission.b != 0 || !inShadow) {
+			final_color += path_color;
+			path_color = vec3(0.0);
+		}
+
+		float cosTheta = max(-dot(normal, rayDir), 0.0);
+
+		float transmission = (ior == 0.0) ? 0.0 : getTransmission(cosTheta, 1.00029, ior);
+		float fresnel = (1.0-transmission) * pow(1.0 - cosTheta, 5.0);
+		float reflectance = transmission + fresnel;
+
+		prevColor = mix(albedo, specular, reflectance) + emission;
+		intensity *= (cosTheta+reflectance) * (1.0 + directLight);
+		
+		if (prevColor.r == 0 && prevColor.g == 0 && prevColor.b == 0)
+			break;
+
+		if (scattering > 0.0) {
+			vec3 scatter = random_hemi(normal, step);
+			if (scattering == 1.0)
+				rayDir = scatter;
+			else
+				rayDir = normalize(mix(refl_ray_dir, scatter, scattering));
+		}
+		else
+			rayDir = refl_ray_dir;
 	}
 	if (escaped) {
 		if (step == 0)
-			final_color = AMBIENT;
-		else
-			final_color += path_color*AMBIENT + (prevAlbedo + prevSpecular*prevLight)*AMBIENT*intensity;
+			path_color = vec3(0.0);
+		final_color += (path_color + prevColor * intensity)*AMBIENT * INV_PI;
 	}
 	
 	return final_color;
 }
 
 void main(void) {
+	LIGHT_INTENS = length(LIGHT_DIR);
 	SIZE = imageSize(img_output);
 	float inv_width = 1.0 / SIZE.x;
 	float inv_height = 1.0 / SIZE.y;
@@ -239,7 +267,11 @@ void main(void) {
 	Ray ray;
 	float x = TEXEL.x * inv_width - 0.5;
 	float y = TEXEL.y * inv_height - 0.5;
+	//*
+	ray.position = vec4(0, 0, 0, 1.0);
+	/*/
 	ray.position = vec4(0.125*x*SIZE.x/SIZE.y, 0.125*y, 0.125*sqrt(1-x*x-y*y), 1.0);
+	//*/
 	vec3 dtctor = vec3((TEXEL.x - 0.5*SIZE.x + 0.5)*inv_height, (TEXEL.y + 0.5)*1.0f*inv_height - 0.5, 0.5);
 	ray.direction = vec4(normalize(dtctor - ray.position.xyz), 0.0);
 	color.rgb = trace((CAMERA * ray.position).xyz, normalize(CAMERA * ray.direction).xyz);
