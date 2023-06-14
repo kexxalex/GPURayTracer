@@ -16,11 +16,11 @@ static constexpr glm::dvec3 rot_x(1.0f, 0.0f, 0.0f);
 static constexpr glm::dvec3 rot_y(0.0f, 1.0f, 0.0f);
 static int WIDTH(3440), HEIGHT(1440);
 
-static glm::dvec2 MVP_rot(-0.7,-2.47);
-static glm::dvec3 MVP_translation(-2.35978,3.87126,4.10415);
+static glm::dvec2 MVP_rot(0, M_PI);
+static glm::dvec3 MVP_translation(0.0, 1.0, 4.0);
 
-static glm::fvec3 LIGHT_DIR = glm::normalize(glm::fvec3(0.0, -1.0, 2.0)) * 0.3f;
-static glm::fvec3 AMBIENT = glm::fvec3(1.0, 0.96, 0.9) * M_PIf * 0.3f;
+static glm::fvec3 LIGHT_DIR = glm::normalize(glm::fvec3(0.0, -1.0, 2.0)) * 0.0f;
+static glm::fvec3 AMBIENT = glm::fvec3(0.9, 0.96, 1.0) * 0.7f;
 
 
 
@@ -35,7 +35,8 @@ void finalRender(GLFWwindow *window, Scene &scene, int width, int height, unsign
         scene.render(width, height, false, CAMERA, ++sample);
         glfwSwapBuffers(window);
         glfwPollEvents();
-        glfwSetWindowTitle(window, ("GPU RT - Samples: " + std::to_string(sample+1)).c_str());
+
+        glfwSetWindowTitle(window, ("GPU RT - Samples: " + std::to_string(sample)).c_str());
         if (glfwGetKey(window, GLFW_KEY_F3) == GLFW_PRESS || sample == 127)
             break;
     }
@@ -48,7 +49,8 @@ void finalRender(GLFWwindow *window, Scene &scene, int width, int height, unsign
 
 
 void mainLoop(GLFWwindow *window, Scene &scene) {
-    glm::dmat4 ROT = glm::rotate(-MVP_rot.y, rot_y) * glm::rotate(-MVP_rot.x, rot_x);
+    static glm::dmat4 P = glm::perspectiveFov(glm::radians(90.0), (double)WIDTH, (double)HEIGHT, 0.03, 1024.0);
+    static glm::dmat4 ROT = glm::rotate(-MVP_rot.y, rot_y) * glm::rotate(-MVP_rot.x, rot_x);
 
     glm::dvec2 mouse, lastMouse;
     bool lastMoving = true;
@@ -63,15 +65,15 @@ void mainLoop(GLFWwindow *window, Scene &scene) {
     static unsigned int sample = 0;
 
     while (!glfwWindowShouldClose(window)) {
-        double time = glfwGetTime();
-        double deltaT = time - lastUpdate;
+        const double time = glfwGetTime();
+        const double deltaT = time - lastUpdate;
         lastUpdate = time;
 
-        bool rightBtn = glfwGetMouseButton(window, GLFW_MOUSE_BUTTON_RIGHT);
-        bool middleBtn = glfwGetMouseButton(window, GLFW_MOUSE_BUTTON_MIDDLE);
+        const bool rightBtn = glfwGetMouseButton(window, GLFW_MOUSE_BUTTON_RIGHT);
+        const bool middleBtn = glfwGetMouseButton(window, GLFW_MOUSE_BUTTON_MIDDLE);
         bool moving = (rightBtn || middleBtn);
-        bool shift = glfwGetKey(window, GLFW_KEY_LEFT_SHIFT);
-        bool ctrl = glfwGetKey(window, GLFW_KEY_LEFT_CONTROL);
+        const bool shift = glfwGetKey(window, GLFW_KEY_LEFT_SHIFT);
+        const bool ctrl = glfwGetKey(window, GLFW_KEY_LEFT_CONTROL);
 
         glfwGetCursorPos(window, &mouse.y, &mouse.x);
         glm::dvec2 delta = lastMouse - mouse;
@@ -116,11 +118,9 @@ void mainLoop(GLFWwindow *window, Scene &scene) {
         {
             if (lastMoving != moving)
                 sample = 0;
-            // std::cout << MVP_translation.x << ',' << MVP_translation.y << ',' << MVP_translation.z << '\n';
-            // std::cout << MVP_rot.x << ',' << MVP_rot.y << '\n';
             ROT = glm::rotate(-MVP_rot.y, rot_y) * glm::rotate(-MVP_rot.x, rot_x);
             glm::fmat4 CameraTransform = glm::translate(MVP_translation) * ROT;
-            glm::fmat4 MVP = glm::perspectiveFov(glm::radians(90.0), (double)WIDTH, (double)HEIGHT, 0.03, 1024.0) * glm::rotate(-MVP_rot.x, rot_x) * glm::rotate(-MVP_rot.y, rot_y) * glm::translate(glm::dvec3(-1,-1,1)*MVP_translation);
+            glm::fmat4 MVP = P * glm::rotate(-MVP_rot.x, rot_x) * glm::rotate(-MVP_rot.y, rot_y) * glm::translate(glm::dvec3(-1,-1,1)*MVP_translation);
             glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
             if (!moving) {
                 sample = 0;
@@ -151,7 +151,6 @@ void mainLoop(GLFWwindow *window, Scene &scene) {
 
 
 int main(int argc, char* args[]) {
-    system("echo $PWD");
     std::string name;
 
     std::cout << "Wavefront File: ";
@@ -176,6 +175,7 @@ int main(int argc, char* args[]) {
     glm::ivec2 display(720.0f*(float)WIDTH/(float)HEIGHT, 720);
     GLFWwindow *window = glfwCreateWindow(display.x, display.y, "GPU RT", nullptr, nullptr);
     glfwMakeContextCurrent(window);
+
     glViewport(0, 0, display.x, display.y);
 
     GLenum err = glewInit();

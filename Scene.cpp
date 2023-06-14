@@ -279,7 +279,7 @@ void Scene::traceScene(int width, int height, const glm::fmat4 &Camera, int recu
 
     glUseProgram(eyeRayTracerProgram);
     glDispatchCompute(((int)glm::ceil((float)width / 8.0f)), ((int)glm::ceil((float)height / 8.0f)), 1);
-    glMemoryBarrier(GL_ALL_BARRIER_BITS);
+    glMemoryBarrier(GL_SHADER_IMAGE_ACCESS_BARRIER_BIT);
 }
 
 void Scene::render(int width, int height, bool moving, const glm::fmat4 &Camera, unsigned int sample) {
@@ -298,7 +298,7 @@ void Scene::render(int width, int height, bool moving, const glm::fmat4 &Camera,
         width = (int)(240.0/height*width);
         height = 240;
 
-        recursion = 3;
+        recursion = 4;
     }
     else {
         glBindImageTexture(0, computeData.renderTarget, 0, GL_FALSE, 0, GL_WRITE_ONLY, GL_RGBA32F);
