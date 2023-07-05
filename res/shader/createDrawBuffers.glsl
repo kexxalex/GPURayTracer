@@ -30,26 +30,26 @@ struct Vertex {
 };
 
 
-
 layout(std430, binding=3) restrict readonly buffer triangleBuffer {
 	Triangle triangles[];
 };
-layout(std430, binding=5) restrict writeonly buffer vertexBuffer {
-	Vertex vertices[];
-};
-
 
 // Materials
 layout(std430, binding=6) restrict readonly buffer materialBuffer {
 	Material materials[];
 };
 
+
+layout(std430, binding=5) restrict writeonly buffer vertexBuffer {
+	Vertex vertices[];
+};
+
 uniform int COUNT;
 
 void main(void) {
-	uint triID = uint(gl_GlobalInvocationID.x);
+	const uint triID = uint(gl_GlobalInvocationID.x);
 
-	Triangle tri = triangles[triID];
+	const Triangle tri = triangles[triID];
 	Material material = materials[uint(ceil(tri.u.w))];
 
 	vertices[3*triID].position = vec4(tri.position.xyz, 1.0);

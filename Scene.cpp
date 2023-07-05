@@ -66,18 +66,13 @@ struct MappedBuffer {
 
 
 Scene::Scene()
-    : eyeRayTracerProgram(glCreateProgram()), spatialSortProgram(glCreateProgram()), drawBufferProgram(glCreateProgram()),
+    : eyeRayTracerProgram(glCreateProgram()), drawBufferProgram(glCreateProgram()),
       displayShader("./res/shader/displayQuad"), modelShader("./res/shader/model")
 {
     GLuint computeID = 0;
     if (loadShaderProgram("./res/shader/raytracer.glsl", GL_COMPUTE_SHADER, computeID))
         glAttachShader(eyeRayTracerProgram, computeID);
     glLinkProgram(eyeRayTracerProgram);
-    glDeleteShader(computeID);
-
-    if (loadShaderProgram("./res/shader/spatialSort.glsl", GL_COMPUTE_SHADER, computeID))
-        glAttachShader(spatialSortProgram, computeID);
-    glLinkProgram(spatialSortProgram);
     glDeleteShader(computeID);
 
     if (loadShaderProgram("./res/shader/createDrawBuffers.glsl", GL_COMPUTE_SHADER, computeID))
@@ -108,7 +103,6 @@ Scene::~Scene() {
     glDeleteBuffers(1, &screenBuffer);
     glDeleteBuffers(1, &modelBuffer);
     glDeleteProgram(eyeRayTracerProgram);
-    glDeleteProgram(spatialSortProgram);
 }
 
 
@@ -134,17 +128,13 @@ void Scene::createTrianglesBuffers() {
     glNamedBufferStorage(computeData.triangleBuffer, triangleBytes, triangles, 0);
     delete[] triangles;
 
-    glCreateBuffers(1, &computeData.visibility);
-    glNamedBufferStorage(computeData.visibility, (GLsizeiptr)computeData.triangles*computeData.triangles*sizeof(int), nullptr, 0);
-    glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 1, computeData.visibility);
-
     glCreateBuffers(1, &modelBuffer);
     glNamedBufferStorage(modelBuffer, (long)computeData.triangles*3*sizeof(Vertex), nullptr, 0);
     glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 5, modelBuffer);
 
     for (int i=0; i < 5; ++i) {
-        glVertexArrayVertexBuffer(modelVAO, i, modelBuffer, sizeof(glm::fvec4)*i, sizeof(Vertex));
-        glVertexArrayAttribFormat(modelVAO, i, 4, GL_FLOAT, GL_FALSE, 0);
+        glVertexArrayVertexBuffer(modelVAO, i, modelBuffer, 0, sizeof(Vertex));
+        glVertexArrayAttribFormat(modelVAO, i, 4, GL_FLOAT, GL_FALSE, sizeof(glm::fvec4)*i);
         glEnableVertexArrayAttrib(modelVAO, i);
     }
 }
@@ -163,7 +153,6 @@ void Scene::createRTCSData() {
     createTrianglesBuffers();
     createMaterialsBuffers();
     glProgramUniform1i(eyeRayTracerProgram, glGetUniformLocation(eyeRayTracerProgram, "COUNT"), computeData.triangles);
-    glProgramUniform1i(spatialSortProgram, glGetUniformLocation(spatialSortProgram, "COUNT"), computeData.triangles);
 }
 
 
@@ -178,14 +167,10 @@ void Scene::finalizeObjects() {
         createRTCSData();
         bindBuffer();
 
-        double t0 = glfwGetTime();
-        glUseProgram(spatialSortProgram);
-        glDispatchCompute((int)glm::ceil(computeData.triangles / 64.0f), 1, 1);
-
         glUseProgram(drawBufferProgram);
         glDispatchCompute((int)glm::ceil(computeData.triangles / 64.0f), 1, 1);
         glMemoryBarrier(GL_ALL_BARRIER_BITS);
-        std::cout << glfwGetTime() - t0 << std::endl;
+        glFinish();
 
         computeData.initialized = true;
     }

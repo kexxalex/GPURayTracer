@@ -65,7 +65,6 @@ private:
     Shader modelShader;
 
     GLuint eyeRayTracerProgram;
-    GLuint spatialSortProgram;
     GLuint drawBufferProgram;
 
     void createTrianglesBuffers();

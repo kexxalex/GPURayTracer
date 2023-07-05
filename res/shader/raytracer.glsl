@@ -4,7 +4,6 @@ layout (local_size_x=8, local_size_y=8, local_size_z=1) in;
 
 
 
-
 struct Triangle {
 	vec4 position;
 	vec4 u;
@@ -34,10 +33,6 @@ uniform mat4 CAMERA;
 layout(rgba32f, binding=0) restrict uniform image2D img_output;
 
 
-
-layout(std430, binding=1) restrict readonly buffer visBuffer { int visibility[]; };
-
-
 layout(std430, binding=2) restrict readonly buffer rayBuffer {
 	Ray rays[];
 };
@@ -46,14 +41,6 @@ layout(std430, binding=2) restrict readonly buffer rayBuffer {
 layout(std430, binding=3) restrict readonly buffer triangleBuffer {
 	Triangle triangles[];
 };
-
-// Large array of random unit vectors
-
-/*
-layout(std430, binding=4) restrict readonly buffer randBuffer {
-	vec4 rand_vec[];
-};
-*/
 
 // Materials
 layout(std430, binding=6) restrict readonly buffer materialBuffer {

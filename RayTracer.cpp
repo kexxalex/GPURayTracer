@@ -62,7 +62,6 @@ void mainLoop(GLFWwindow *window, Scene &scene) {
 
     double lastUpdate = glfwGetTime();
 
-    glEnable(GL_TEXTURE_2D);
     glEnable(GL_DEPTH_TEST);
     glFrontFace(GL_CW);
     glCullFace(GL_BACK);
@@ -131,10 +130,12 @@ void mainLoop(GLFWwindow *window, Scene &scene) {
                 sample = 0;
                 glfwSetWindowTitle(window, ("GPU RT - Samples: " + std::to_string(sample+1)).c_str());
                 scene.render(WIDTH, HEIGHT, false, CameraTransform, sample++);
+                scene.display(sample);
             }
             else if (middleBtn) {
                 glfwSetWindowTitle(window, ("GPU RT - Samples: " + std::to_string(sample+1)).c_str());
                 scene.render(WIDTH, HEIGHT, true, CameraTransform, sample++);
+                scene.display(sample);
             }
             else {
                 glfwSetWindowTitle(window, "GPU RT - OpenGL Phong");
@@ -143,7 +144,6 @@ void mainLoop(GLFWwindow *window, Scene &scene) {
             if (glfwGetKey(window, GLFW_KEY_LEFT_ALT) == GLFW_PRESS) {
                 scene.renderWireframe(MVP, MVP_translation);
             }
-            scene.display(sample);
             glfwSwapBuffers(window);
         }
         lastMoving = moving;

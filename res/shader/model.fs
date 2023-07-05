@@ -38,23 +38,33 @@ float getTransmission(float cosThetaI, float etaI, float etaT) {
 	return dot(reflectance, reflectance) * 0.5;
 }
 
+vec3 ACESFilm(in vec3 x) {
+    float a = 2.51;
+    float b = 0.03;
+    float c = 2.43;
+    float d = 0.59;
+    float e = 0.14;
+    return clamp((x*(a*x+b))/(x*(c*x+d)+e), 0.0, 1.0);
+}
+
 void main() {
     vec3 normal = normalize(vNormal);
-    float light = max(dot(-LIGHT_DIR, normal), 0.0);
-    vec3 view = normalize((vec4(vVertex-CAMERA,0)).xyz);
-    float spec = max(-dot(reflect(LIGHT_DIR, normal), view), 0.0);
+    vec3 view = normalize(vVertex - CAMERA);
 
+    const float light = max(-dot(normal, LIGHT_DIR), 0.0);
+    const vec3 reflected = reflect(view, normal);
+    const float specIntens = max(-dot(reflected, LIGHT_DIR), 0.0);
 
-    float transmission = (vIOR == 0.0) ? 1.0 : 1.0 - getTransmission(spec, 1.00029, vIOR);
-    float fresnel = transmission * pow(1.0 - light, 5.0);
-    float reflectance = (1.0 - transmission) + fresnel;
+    const float transmission = (vIOR == 0.0) ? 0.0 : getTransmission(specIntens, 1.00029, vIOR);
 
-    vec3 surface = mix(vAlbedo, vSpecular, reflectance);
-    float luma_total = dot(LUMA, surface);
+    const float mCosTheta = 1.0 - specIntens;
+    const float mCosTheta2 = mCosTheta * mCosTheta;
+    const float mCosTheta4 = mCosTheta2 * mCosTheta2;
+    const float mCosTheta5 = mCosTheta * mCosTheta4;
 
-    float ambient_light = mix(luma_total, 1.0, vRoughness);
-    float ambient_spec = max(-dot(view, normal), 0.0);
+    const float fresnel = (1.0-transmission) * mCosTheta5;
+    const float reflectance = transmission + fresnel;
+    const float a_s_lerp = (specIntens + reflectance) * (1.0 - vRoughness);
 
-    vec3 color = surface * light;// + AMBIENT * INV_PI * ambient_spec + vEmission;
-    outFragColor = WIREFRAME ? normal * 0.5 + 0.5 : color;
+    outFragColor = WIREFRAME ? normal * 0.5 + 0.5 : vEmission + mix(vAlbedo * (light + max(-dot(view, normal), 0.0)*INV_PI), vSpecular * AMBIENT, a_s_lerp);
 } 

@@ -1,8 +1,8 @@
 #version 450 core
 
 layout(location=0) in vec4 aPosition;
-layout(location=1) in vec3 aNormal;
-layout(location=2) in vec3 aAlbedo;
+layout(location=1) in vec4 aNormal;
+layout(location=2) in vec4 aAlbedo;
 layout(location=3) in vec4 aSpecularRoughness;
 layout(location=4) in vec4 aEmissionIOR;
 
@@ -17,10 +17,10 @@ out float vIOR;
 out float vRoughness;
 
 void main() {
-	vNormal = aNormal;
-	vAlbedo = aAlbedo;
+	vNormal = aNormal.xyz;
+	vAlbedo = aAlbedo.xyz;
 	vSpecular = aSpecularRoughness.rgb;
-	vRoughness = aSpecularRoughness.a;
+	vRoughness = aSpecularRoughness.a * 0.001;
 	vEmission = aEmissionIOR.rgb;
 	vVertex = aPosition.xyz;
 	vIOR = aEmissionIOR.a;
