@@ -11,7 +11,7 @@ def ACESFilm(data):
     c = 2.43;
     d = 0.59;
     e = 0.14;
-    return np.clip((data*(a*data+b))/(data*(c*data+d)+e), 0.0, 1.0)
+    return np.power(np.clip((data*(a*data+b))/(data*(c*data+d)+e), 0.0, 1.0), 1.0/2.2)
 
 if __name__ == "__main__":
     width = int(sys.argv[1])

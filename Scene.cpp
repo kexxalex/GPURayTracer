@@ -2,7 +2,6 @@
 #include <fstream>
 #include "Scene.hpp"
 #include "Shader.hpp"
-#include <random>
 
 
 #ifdef __linux__
@@ -43,16 +42,18 @@ struct st_BMP_INFO_HEADER {
 
 
 // Automatically maps and unmaps the Buffer
+
 template<typename T>
 struct MappedBuffer {
     MappedBuffer(GLuint &buffer_id, unsigned int count,
-                 GLbitfield buffer_flags = GL_MAP_PERSISTENT_BIT | GL_MAP_WRITE_BIT, GLenum access = GL_WRITE_ONLY)
+                 GLbitfield buffer_flags = GL_MAP_COHERENT_BIT | GL_MAP_PERSISTENT_BIT | GL_MAP_WRITE_BIT | GL_DYNAMIC_STORAGE_BIT,
+                 GLbitfield access = GL_MAP_COHERENT_BIT | GL_MAP_PERSISTENT_BIT | GL_MAP_WRITE_BIT)
                  : buffer(buffer_id), ptr(nullptr) {
         if (buffer_id == 0 && count > 0) {
             glCreateBuffers(1, &buffer_id);
             glNamedBufferStorage(buffer_id, count * sizeof(T), nullptr, buffer_flags);
         }
-        ptr = (T *) glMapNamedBuffer(buffer_id, access);
+        ptr = (T *)glMapNamedBufferRange(buffer_id, 0, count * sizeof(T), access);
     }
 
     ~MappedBuffer() { glUnmapNamedBuffer(buffer); }
@@ -115,16 +116,23 @@ void Scene::createTrianglesBuffers() {
     computeData.triangles = 0;
     for (const Object &obj: m_objects)
         computeData.triangles += obj.triangles.size();
-    std::cout << "Triangles: " << computeData.triangles << '\n';
 
-    MappedBuffer<Triangle> mapped_triangles(computeData.triangleBuffer, computeData.triangles);
+    const GLsizeiptr triangleBytes = computeData.triangles * sizeof(Triangle);
+
+    std::cout << "Triangles: " << computeData.triangles << "\t " << triangleBytes/1024.0/1024.0 << " MB\n";
+    
+    Triangle * const triangles = new Triangle[computeData.triangles];
 
     unsigned int index = 0;
     for (Object &obj: m_objects) {
         for (Triangle &tri: obj.triangles) {
-            mapped_triangles[index++] = tri;
+            triangles[index++] = tri;
         }
     }
+
+    glCreateBuffers(1, &computeData.triangleBuffer);
+    glNamedBufferStorage(computeData.triangleBuffer, triangleBytes, triangles, 0);
+    delete[] triangles;
 
     glCreateBuffers(1, &computeData.visibility);
     glNamedBufferStorage(computeData.visibility, (GLsizeiptr)computeData.triangles*computeData.triangles*sizeof(int), nullptr, 0);
@@ -183,42 +191,6 @@ void Scene::finalizeObjects() {
     }
 }
 
-void Scene::generateRandomUnitVectors() {
-    static std::default_random_engine generator;
-    static std::uniform_real_distribution<double> angleDist(0.0, std::numbers::pi);
-    long new_random_size = computeData.resolution.x*computeData.resolution.y*(long)4;
-
-    static MappedBuffer<glm::fvec4> rndMap(randomBuffer, 0, GL_MAP_PERSISTENT_BIT | GL_MAP_COHERENT_BIT | GL_MAP_WRITE_BIT, GL_WRITE_ONLY);
-    static long random_size = 0;
-
-    if (new_random_size > random_size) {
-        glDeleteBuffers(1, &randomBuffer);
-        glCreateBuffers(1, &randomBuffer);
-        glNamedBufferStorage(randomBuffer, new_random_size * sizeof(glm::fvec4), nullptr, GL_MAP_PERSISTENT_BIT | GL_MAP_COHERENT_BIT | GL_MAP_WRITE_BIT);
-        rndMap.ptr = (glm::fvec4*)glMapNamedBuffer(randomBuffer, GL_WRITE_ONLY);
-        rndMap.buffer = randomBuffer;
-        random_size = new_random_size;
-    }
-    if (!rndMap.ptr)
-        return;
-
-    unsigned index = 0;
-    for (int x=0; x < computeData.resolution.x; ++x) {
-        for (int y=0; y < computeData.resolution.y; ++y) {
-            for (int z=0; z < 4; ++z) {
-                double wx(angleDist(generator)), wy(angleDist(generator)*2.0);
-                rndMap[index++] = {
-                        glm::cos(wx)*glm::sin(wy),
-                        -glm::sin(wx),
-                        glm::cos(wx)*glm::cos(wy),
-                        0.0
-                };
-            }
-        }
-    }
-    glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 4, randomBuffer);
-}
-
 void Scene::setDirectionLight(const glm::fvec3 &light_dir) {
     static const int RT_LightLoc = glGetUniformLocation(eyeRayTracerProgram, "LIGHT_DIR");
     glProgramUniform3f(eyeRayTracerProgram, RT_LightLoc, light_dir.x, light_dir.y, light_dir.z);
@@ -259,27 +231,22 @@ void Scene::adaptResolution(const glm::ivec2 &newRes) {
         }
     }
     glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 2, rayBuffer);
-
-    static bool hasRand = false;
-    if (hasRand)
-        return;
-
-    hasRand = true;
-    generateRandomUnitVectors();
 }
 
 void Scene::traceScene(int width, int height, const glm::fmat4 &Camera, int recursion, unsigned int sample) {
     static const int CAMERAloc = glGetUniformLocation(eyeRayTracerProgram, "CAMERA");
     static const int RECloc = glGetUniformLocation(eyeRayTracerProgram, "RECURSION");
     static const int SAMPLEloc = glGetUniformLocation(eyeRayTracerProgram, "SAMPLE");
+    static const int CLOCKloc = glGetUniformLocation(eyeRayTracerProgram, "CLOCK");
 
     glProgramUniformMatrix4fv(eyeRayTracerProgram, CAMERAloc, 1, GL_FALSE, &Camera[0].x);
     glProgramUniform1i(eyeRayTracerProgram, RECloc, recursion);
     glProgramUniform1i(eyeRayTracerProgram, SAMPLEloc, sample);
+    glProgramUniform1ui(eyeRayTracerProgram, CLOCKloc, clock());
 
     glUseProgram(eyeRayTracerProgram);
     glDispatchCompute(((int)glm::ceil((float)width / 8.0f)), ((int)glm::ceil((float)height / 8.0f)), 1);
-    glMemoryBarrier(GL_SHADER_IMAGE_ACCESS_BARRIER_BIT);
+    glMemoryBarrier(GL_ALL_BARRIER_BITS);
 }
 
 void Scene::render(int width, int height, bool moving, const glm::fmat4 &Camera, unsigned int sample) {
@@ -298,18 +265,17 @@ void Scene::render(int width, int height, bool moving, const glm::fmat4 &Camera,
         width = (int)(240.0/height*width);
         height = 240;
 
-        recursion = 4;
+        recursion = 6;
     }
     else {
         glBindImageTexture(0, computeData.renderTarget, 0, GL_FALSE, 0, GL_WRITE_ONLY, GL_RGBA32F);
         glBindTextureUnit(0, computeData.renderTarget);
     }
 
-    if (!moving && sample > 0 && sample % 4 == 0)
-        generateRandomUnitVectors();
-
     traceScene(width, height, Camera, recursion, sample);
+}
 
+void Scene::display(unsigned int sample) {
     displayShader.Bind();
     displayShader.setUInt("SAMPLES", sample+1);
 

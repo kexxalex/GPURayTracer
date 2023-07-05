@@ -31,6 +31,7 @@ struct Ray {
 
 
 struct Triangle {
+    constexpr Triangle() {};
     Triangle(const glm::fvec3 &p0, const glm::fvec3 &p1, const glm::fvec3 &p2,
              const glm::fvec3 &n0, const glm::fvec3 &n1, const glm::fvec3 &n2, unsigned int mat)
             : position(p0, 1.0f), u(p1 - p0, mat), v(p2 - p0, 0.0f), true_normal(glm::cross(glm::fvec3(v), glm::fvec3(u)), 0.0f),

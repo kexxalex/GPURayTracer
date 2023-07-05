@@ -1,9 +1,12 @@
 #pragma once
 
+
 #ifdef __linux__
 #include <GL/glew.h>
+#include <glm/glm.hpp>
 #elif _WIN32
 #include "GL/glew.h"
+#include "glm/glm.hpp"
 #endif
 
 // RayTracer ComputeShader Data

@@ -3,13 +3,18 @@
 #include "Scene.hpp"
 
 #ifdef __linux__
+
 #include <GL/glew.h>
 #include <GLFW/glfw3.h>
 #include <glm/gtx/transform.hpp>
+
 #elif _WIN32
+
+constexpr double M_PI = 3.141592653589793;
 #include "GL/glew.h"
 #include "GLFW/glfw3.h"
 #include "glm/gtx/transform.hpp"
+
 #endif
 
 static constexpr glm::dvec3 rot_x(1.0f, 0.0f, 0.0f);
@@ -20,7 +25,7 @@ static glm::dvec2 MVP_rot(0, M_PI);
 static glm::dvec3 MVP_translation(0.0, 1.0, 4.0);
 
 static glm::fvec3 LIGHT_DIR = glm::normalize(glm::fvec3(0.0, -1.0, 2.0)) * 0.0f;
-static glm::fvec3 AMBIENT = glm::fvec3(0.9, 0.96, 1.0) * 0.7f;
+static glm::fvec3 AMBIENT = glm::fvec3(0.9, 0.96, 1.0) * 0.5f;
 
 
 
@@ -28,19 +33,18 @@ void finalRender(GLFWwindow *window, Scene &scene, int width, int height, unsign
     glm::dmat4 ROT = glm::rotate(-MVP_rot.y, rot_y) * glm::rotate(-MVP_rot.x, rot_x);
     glm::fmat4 CAMERA = glm::translate(MVP_translation) * ROT;
     glm::fmat4 MVP = glm::perspectiveFov(glm::radians(90.0), (double)WIDTH, (double)HEIGHT, 0.03, 1024.0) * glm::rotate(-MVP_rot.x, rot_x) * glm::rotate(-MVP_rot.y, rot_y) * glm::translate(glm::dvec3(-1,-1,1)*MVP_translation);
-    glfwSwapInterval(0);
-    double t0 = glfwGetTime();
-    while (true) {
-        glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+    const auto t0 = glfwGetTime();
+    double lastSwap = t0;
+    double t;
+    while (sample < 127) {
         scene.render(width, height, false, CAMERA, ++sample);
-        glfwSwapBuffers(window);
-        glfwPollEvents();
-
-        glfwSetWindowTitle(window, ("GPU RT - Samples: " + std::to_string(sample)).c_str());
-        if (glfwGetKey(window, GLFW_KEY_F3) == GLFW_PRESS || sample == 127)
-            break;
     }
-    double sps = (sample+1) / (glfwGetTime() - t0);
+    glFinish();
+    glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+    scene.display(sample);
+    glfwSwapBuffers(window);
+    glfwPollEvents();
+    double sps = (sample+1) / (glfwGetTime() - t0);// * WIDTH * HEIGHT;
     std::cout << sps << std::endl;
     glfwSwapInterval(1);
     glfwSetWindowTitle(window, ("GPU RT - Samples: " + std::to_string(sample+1) + " - Finished").c_str());
@@ -58,6 +62,7 @@ void mainLoop(GLFWwindow *window, Scene &scene) {
 
     double lastUpdate = glfwGetTime();
 
+    glEnable(GL_TEXTURE_2D);
     glEnable(GL_DEPTH_TEST);
     glFrontFace(GL_CW);
     glCullFace(GL_BACK);
@@ -138,6 +143,7 @@ void mainLoop(GLFWwindow *window, Scene &scene) {
             if (glfwGetKey(window, GLFW_KEY_LEFT_ALT) == GLFW_PRESS) {
                 scene.renderWireframe(MVP, MVP_translation);
             }
+            scene.display(sample);
             glfwSwapBuffers(window);
         }
         lastMoving = moving;
@@ -170,7 +176,7 @@ int main(int argc, char* args[]) {
     glfwWindowHint(GLFW_CONTEXT_VERSION_MAJOR, 4);
     glfwWindowHint(GLFW_CONTEXT_VERSION_MINOR, 5);
     glfwWindowHint(GLFW_OPENGL_FORWARD_COMPAT, GLFW_TRUE);
-    glfwWindowHint(GLFW_OPENGL_PROFILE, GLFW_OPENGL_CORE_PROFILE);
+    glfwWindowHint(GLFW_OPENGL_PROFILE, GLFW_OPENGL_COMPAT_PROFILE);
 
     glm::ivec2 display(720.0f*(float)WIDTH/(float)HEIGHT, 720);
     GLFWwindow *window = glfwCreateWindow(display.x, display.y, "GPU RT", nullptr, nullptr);
