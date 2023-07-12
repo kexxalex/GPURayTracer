@@ -34,16 +34,16 @@ void finalRender(GLFWwindow *window, Scene &scene, int width, int height, unsign
     glm::fmat4 CAMERA = glm::translate(MVP_translation) * ROT;
     glm::fmat4 MVP = glm::perspectiveFov(glm::radians(90.0), (double)WIDTH, (double)HEIGHT, 0.03, 1024.0) * glm::rotate(-MVP_rot.x, rot_x) * glm::rotate(-MVP_rot.y, rot_y) * glm::translate(glm::dvec3(-1,-1,1)*MVP_translation);
     const auto t0 = glfwGetTime();
-    double lastSwap = t0;
     double t;
+    glfwSwapInterval(0);
     while (sample < 127) {
         scene.render(width, height, false, CAMERA, ++sample);
+        glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+        scene.display(sample);
+        glfwSetWindowTitle(window, ("GPU RT - Samples: " + std::to_string(sample+1)).c_str());
+        glfwSwapBuffers(window);
+        glfwPollEvents();
     }
-    glFinish();
-    glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
-    scene.display(sample);
-    glfwSwapBuffers(window);
-    glfwPollEvents();
     double sps = (sample+1) / (glfwGetTime() - t0);// * WIDTH * HEIGHT;
     std::cout << sps << std::endl;
     glfwSwapInterval(1);
@@ -157,16 +157,13 @@ void mainLoop(GLFWwindow *window, Scene &scene) {
 
 
 int main(int argc, char* args[]) {
-    std::string name;
+    if (argc != 4)
+        return EXIT_FAILURE;
 
-    std::cout << "Wavefront File: ";
-    std::cin >> name;
+    std::string name(args[1]);
 
-    std::cout << "Width: ";
-    std::cin >> WIDTH;
-
-    std::cout << "Height: ";
-    std::cin >> HEIGHT;
+    WIDTH = atoi(args[2]);
+    HEIGHT = atoi(args[3]);
 
     if (glfwInit() != GLFW_TRUE) {
         std::cerr << "Cannot initialize GLFW\n";
@@ -176,7 +173,12 @@ int main(int argc, char* args[]) {
     glfwWindowHint(GLFW_CONTEXT_VERSION_MAJOR, 4);
     glfwWindowHint(GLFW_CONTEXT_VERSION_MINOR, 5);
     glfwWindowHint(GLFW_OPENGL_FORWARD_COMPAT, GLFW_TRUE);
-    glfwWindowHint(GLFW_OPENGL_PROFILE, GLFW_OPENGL_COMPAT_PROFILE);
+    glfwWindowHint(GLFW_OPENGL_PROFILE, GLFW_OPENGL_CORE_PROFILE);
+
+    glfwWindowHint(GLFW_RED_BITS,             10);
+    glfwWindowHint(GLFW_GREEN_BITS,           10);
+    glfwWindowHint(GLFW_BLUE_BITS,            10);
+    glfwWindowHint(GLFW_ALPHA_BITS,            2);
 
     glm::ivec2 display(720.0f*(float)WIDTH/(float)HEIGHT, 720);
     GLFWwindow *window = glfwCreateWindow(display.x, display.y, "GPU RT", nullptr, nullptr);

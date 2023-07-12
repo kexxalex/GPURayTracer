@@ -34,21 +34,34 @@ struct Triangle {
     constexpr Triangle() {};
     Triangle(const glm::fvec3 &p0, const glm::fvec3 &p1, const glm::fvec3 &p2,
              const glm::fvec3 &n0, const glm::fvec3 &n1, const glm::fvec3 &n2, unsigned int mat)
-            : position(p0, 1.0f), u(p1 - p0, mat), v(p2 - p0, 0.0f), true_normal(glm::cross(glm::fvec3(v), glm::fvec3(u)), 0.0f),
-              normals0(n0, 0.0f), normals1(n1, 0.0f), normals2(n2, 0.0f)
-    {}
+            : position(p0, 1.0f), u(p1 - p0, mat), v(p2 - p0, 0.0f),
+              normal0(n0, 0.0f), normal1(n1, 0.0f), normal2(n2, 0.0f)
+    {
+        const auto true_normal(glm::cross(glm::fvec3(v), glm::fvec3(u)));
+        normal0.w = true_normal.x;
+        normal1.w = true_normal.y;
+        normal2.w = true_normal.z;
+    }
 
-    Triangle &operator=(const Triangle &) = default;
+    Triangle &operator=(const Triangle &tri) {
+        position = tri.position;
+        u = tri.u;
+        v = tri.v;
+
+        normal0 = tri.normal0;
+        normal1 = tri.normal1;
+        normal2 = tri.normal2;
+
+        return *this;
+    };
 
     glm::fvec4 position;
     glm::fvec4 u;
     glm::fvec4 v;
 
-    glm::fvec4 true_normal;
-
-    glm::fvec4 normals0;
-    glm::fvec4 normals1;
-    glm::fvec4 normals2;
+    glm::fvec4 normal0;
+    glm::fvec4 normal1;
+    glm::fvec4 normal2;
 };
 
 

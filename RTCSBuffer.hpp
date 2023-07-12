@@ -19,11 +19,11 @@ struct st_RTCS_data {
     glm::ivec2 resolution{0, 0};
     glm::ivec2 buffer_res{0, 0};
 
-    unsigned int triangles{ 0 };
+    uint32_t triangles{ 0 };
 
     GLuint renderTarget{0};
     GLuint renderTargetLow{0};
-\
+
     GLuint triangleBuffer{0};
     GLuint materialBuffer{0};
 };

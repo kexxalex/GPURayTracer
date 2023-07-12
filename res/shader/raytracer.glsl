@@ -9,8 +9,6 @@ struct Triangle {
 	vec4 u;
 	vec4 v;
 
-	vec4 N;
-
 	vec4 normal0;
 	vec4 normal1;
 	vec4 normal2;
@@ -146,7 +144,8 @@ bool hit(in const vec3 rayPos, in const vec3 rayDir, in const int avoid) {
 			continue;
 
 		Triangle tri = triangles[triID];
-		if (intersectShadow(rayPos, rayDir, tri.position.xyz, tri.u.xyz, tri.v.xyz, tri.N.xyz))
+		const vec3 N = vec3(tri.normal0.w, tri.normal1.w, tri.normal2.w);
+		if (intersectShadow(rayPos, rayDir, tri.position.xyz, tri.u.xyz, tri.v.xyz, N))
 			return true;
 	}
 	return false;
@@ -183,8 +182,10 @@ vec3 trace(in vec3 rayPos, in vec3 rayDir, uint seed) {
 				continue;
 
 			const Triangle tri = triangles[triID];
+
+			const vec3 N = vec3(tri.normal0.w, tri.normal1.w, tri.normal2.w);
 			
-			if (intersect(rayPos, rayDir, tri.position.xyz, tri.u.xyz, tri.v.xyz, tri.N.xyz, current_intersection))
+			if (intersect(rayPos, rayDir, tri.position.xyz, tri.u.xyz, tri.v.xyz, N, current_intersection))
 				current_tri = triID;
 		}
 
@@ -242,7 +243,11 @@ vec3 trace(in vec3 rayPos, in vec3 rayDir, uint seed) {
 		const float reflectance = transmission + fresnel;
 
 		const float lerp = clamp(specIntens+reflectance, 0.0, 1.0);
-		const vec3 scatter = random_sphere(seed); //random_hemi(normal, seed);
+		//*
+		const vec3 scatter = random_sphere(seed);
+		/*/
+		const vec3 scatter = random_hemi(normal, seed);
+		//*/
 
 		rayDir = normalize(refl_ray_dir + scatter*scattering);
 		path *= mix(albedo, specular, lerp);

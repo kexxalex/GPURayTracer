@@ -46,7 +46,7 @@ struct st_BMP_INFO_HEADER {
 template<typename T>
 struct MappedBuffer {
     MappedBuffer(GLuint &buffer_id, unsigned int count,
-                 GLbitfield buffer_flags = GL_MAP_COHERENT_BIT | GL_MAP_PERSISTENT_BIT | GL_MAP_WRITE_BIT | GL_DYNAMIC_STORAGE_BIT,
+                 GLbitfield buffer_flags = GL_MAP_COHERENT_BIT | GL_MAP_PERSISTENT_BIT | GL_MAP_WRITE_BIT,
                  GLbitfield access = GL_MAP_COHERENT_BIT | GL_MAP_PERSISTENT_BIT | GL_MAP_WRITE_BIT)
                  : buffer(buffer_id), ptr(nullptr) {
         if (buffer_id == 0 && count > 0) {
@@ -63,6 +63,14 @@ struct MappedBuffer {
     GLuint buffer;
     T *ptr;
 };
+
+
+template<typename T, uint32_t p>
+constexpr T ceilPower2(const T n) {
+    // Ceils the number when dividing with 2^p
+    // Example: ceil(70 / 32.0) = int(70 / 32) + bool(70 & 31)
+    return (n >> p) + bool(p & ((1 << p)-1));
+}
 
 
 Scene::Scene()
@@ -118,8 +126,8 @@ void Scene::createTrianglesBuffers() {
     Triangle * const triangles = new Triangle[computeData.triangles];
 
     unsigned int index = 0;
-    for (Object &obj: m_objects) {
-        for (Triangle &tri: obj.triangles) {
+    for (const Object &obj: m_objects) {
+        for (const Triangle &tri: obj.triangles) {
             triangles[index++] = tri;
         }
     }
@@ -129,7 +137,7 @@ void Scene::createTrianglesBuffers() {
     delete[] triangles;
 
     glCreateBuffers(1, &modelBuffer);
-    glNamedBufferStorage(modelBuffer, (long)computeData.triangles*3*sizeof(Vertex), nullptr, 0);
+    glNamedBufferStorage(modelBuffer, sizeof(Vertex)*3*computeData.triangles, nullptr, 0);
     glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 5, modelBuffer);
 
     for (int i=0; i < 5; ++i) {
@@ -167,10 +175,11 @@ void Scene::finalizeObjects() {
         createRTCSData();
         bindBuffer();
 
+        const uint32_t trisDiv64Ceil = ceilPower2<uint32_t, 6U>(computeData.triangles);
+
         glUseProgram(drawBufferProgram);
-        glDispatchCompute((int)glm::ceil(computeData.triangles / 64.0f), 1, 1);
+        glDispatchCompute(trisDiv64Ceil, 1, 1);
         glMemoryBarrier(GL_ALL_BARRIER_BITS);
-        glFinish();
 
         computeData.initialized = true;
     }
@@ -218,7 +227,7 @@ void Scene::adaptResolution(const glm::ivec2 &newRes) {
     glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 2, rayBuffer);
 }
 
-void Scene::traceScene(int width, int height, const glm::fmat4 &Camera, int recursion, unsigned int sample) {
+void Scene::traceScene(const uint32_t width, const uint32_t height, const glm::fmat4 &Camera, const int recursion, const unsigned int sample) {
     static const int CAMERAloc = glGetUniformLocation(eyeRayTracerProgram, "CAMERA");
     static const int RECloc = glGetUniformLocation(eyeRayTracerProgram, "RECURSION");
     static const int SAMPLEloc = glGetUniformLocation(eyeRayTracerProgram, "SAMPLE");
@@ -229,9 +238,12 @@ void Scene::traceScene(int width, int height, const glm::fmat4 &Camera, int recu
     glProgramUniform1i(eyeRayTracerProgram, SAMPLEloc, sample);
     glProgramUniform1ui(eyeRayTracerProgram, CLOCKloc, clock());
 
+    const uint32_t widthDiv8Ceil  = ceilPower2<uint32_t, 3U>(width);
+    const uint32_t heightDiv8Ceil = ceilPower2<uint32_t, 3U>(height);
+
     glUseProgram(eyeRayTracerProgram);
-    glDispatchCompute(((int)glm::ceil((float)width / 8.0f)), ((int)glm::ceil((float)height / 8.0f)), 1);
-    glMemoryBarrier(GL_ALL_BARRIER_BITS);
+    glDispatchCompute(widthDiv8Ceil, heightDiv8Ceil, 1);
+    glMemoryBarrier(GL_SHADER_IMAGE_ACCESS_BARRIER_BIT);
 }
 
 void Scene::render(int width, int height, bool moving, const glm::fmat4 &Camera, unsigned int sample) {
