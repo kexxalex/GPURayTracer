@@ -290,6 +290,9 @@ void Scene::traceScene(const uint32_t width, const uint32_t height, const uint32
     static const int SAMPLEloc = glGetUniformLocation(eyeRayTracerProgram, "SAMPLE");
     glProgramUniform1ui(eyeRayTracerProgram, SAMPLEloc, sample);
 
+    const uint32_t widthDiv8Ceil  = ceilPower2<uint32_t, 3U>(width);
+    const uint32_t heightDiv8Ceil = ceilPower2<uint32_t, 3U>(height);
+
     glUseProgram(eyeRayTracerProgram);
     glDispatchCompute(widthDivCeil, heightDivCeil, 1);
     glMemoryBarrier(GL_SHADER_IMAGE_ACCESS_BARRIER_BIT);

@@ -281,6 +281,8 @@ vec3 trace(in vec3 rayPos, in vec3 rayDir, uint seed) {
 		const float reflectance = transmission + fresnel;
 
 		const float metallic = (mat_id == 2) ? texel_arm.b : float(scattering < 0.125);
+		//*
+		const vec3 scatter = random_sphere(seed);
 
 		const float rand_reflectance = UnitFloat(seed);
 		const float rand_scatter = UnitFloat(seed);
