@@ -25,7 +25,7 @@ static glm::dvec3 MVP_translation(0.0, 2.0, 4.0);
 static glm::dvec2 MVP_rot(-atan2(2.0, 4.0), M_PI);
 
 static glm::fvec3 LIGHT_DIR = glm::normalize(glm::fvec3(0.0, 2.0, 0.5)) * 1.0f;
-static glm::fvec3 AMBIENT = glm::fvec3(0.2f, 0.21f, 0.22f) * 0.0f;
+static glm::fvec3 AMBIENT = glm::fvec3(0.2f, 0.21f, 0.22f) * 0.5f;
 
 
 
