@@ -21,14 +21,14 @@ public:
     void finalizeObjects();
     void generateRandomUnitVectors();
     void adaptResolution(const glm::ivec2 &newRes);
-    void render(int width, int height, bool moving, const glm::fmat4 &Camera, unsigned int sample);
+    void prepare(int &width, int &height, bool moving, const glm::fmat4 &Camera);
+    void traceScene(const uint32_t width, const uint32_t height, const uint32_t sample);
     void display(unsigned int sample);
     void renderWireframe(const glm::fmat4 &MVP, const glm::fvec3 &cam_pos);
     void forwardRender(const glm::fmat4 &MVP, const glm::fvec3 &cam_pos);
     std::shared_ptr<unsigned char[]> exportRGBA8() const;
     bool exportBMP(const char *name) const;
     void exportRAW(const char *name) const;
-    void traceScene(int width, int height, const glm::fmat4 &MVP, int recursion, unsigned int sample);
 
     inline Object &getObject(std::string &&name) {
         return m_objects.emplace_back(std::move(name));
@@ -53,7 +53,6 @@ private:
     st_RTCS_data computeData;
 
     GLuint rayBuffer{ 0 };
-    GLuint randomBuffer{ 0 };
 
     GLuint modelBuffer{ 0 };
     GLuint modelVAO;
@@ -66,6 +65,7 @@ private:
 
     GLuint eyeRayTracerProgram;
     GLuint drawBufferProgram;
+    GLuint woodTextures[3];
 
     void createTrianglesBuffers();
 

@@ -2,6 +2,8 @@
 #include <fstream>
 #include "Scene.hpp"
 #include "Shader.hpp"
+#define STB_IMAGE_IMPLEMENTATION
+#include <stb/stb_image.h>
 
 
 #ifdef __linux__
@@ -46,7 +48,7 @@ struct st_BMP_INFO_HEADER {
 template<typename T>
 struct MappedBuffer {
     MappedBuffer(GLuint &buffer_id, unsigned int count,
-                 GLbitfield buffer_flags = GL_MAP_COHERENT_BIT | GL_MAP_PERSISTENT_BIT | GL_MAP_WRITE_BIT | GL_DYNAMIC_STORAGE_BIT,
+                 GLbitfield buffer_flags = GL_MAP_COHERENT_BIT | GL_MAP_PERSISTENT_BIT | GL_MAP_WRITE_BIT,
                  GLbitfield access = GL_MAP_COHERENT_BIT | GL_MAP_PERSISTENT_BIT | GL_MAP_WRITE_BIT)
                  : buffer(buffer_id), ptr(nullptr) {
         if (buffer_id == 0 && count > 0) {
@@ -63,6 +65,25 @@ struct MappedBuffer {
     GLuint buffer;
     T *ptr;
 };
+
+
+template<typename T, uint32_t p>
+constexpr T ceilPower2(const T n) {
+    // Ceils the number when dividing with 2^p
+    // Example: ceil(70 / 32.0) = int(70 / 32) + bool(70 & 31)
+    return (n >> p) + bool(p & ((1 << p)-1));
+}
+
+
+
+glm::fvec3 ACESFilm(const glm::fvec3& x) {
+    constexpr float a = 2.51;
+    constexpr float b = 0.03;
+    constexpr float c = 2.43;
+    constexpr float d = 0.59;
+    constexpr float e = 0.14;
+    return glm::clamp((x*(a*x+b))/(x*(c*x+d)+e), glm::fvec3(0.0f), glm::fvec3(1.0f));
+}
 
 
 Scene::Scene()
@@ -84,6 +105,43 @@ Scene::Scene()
     glCreateVertexArrays(1, &modelVAO);
     glCreateBuffers(1, &screenBuffer);
 
+    int width, height, channels;
+    unsigned short* diffuse = stbi_load_16("./res/models/textures/laminate_diff.png", &width, &height, &channels, 3);
+    unsigned short* normal = stbi_load_16("./res/models/textures/laminate_normal.png", &width, &height, &channels, 3);
+    unsigned short* arm = stbi_load_16("./res/models/textures/laminate_arm.png", &width, &height, &channels, 3);
+
+    glCreateTextures(GL_TEXTURE_2D, 3, woodTextures);
+    glTextureStorage2D(woodTextures[0], 1, GL_RGB16, width, height);
+    glTextureStorage2D(woodTextures[1], 1, GL_RGB16, width, height);
+    glTextureStorage2D(woodTextures[2], 1, GL_RGB16, width, height);
+
+    for (int i=0; i < 3; i++) {
+        glTextureParameteri(woodTextures[i], GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+        glTextureParameteri(woodTextures[i], GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+        glTextureParameteri(woodTextures[i], GL_TEXTURE_WRAP_S, GL_REPEAT);
+        glTextureParameteri(woodTextures[i], GL_TEXTURE_WRAP_T, GL_REPEAT);
+        glTextureParameteri(woodTextures[i], GL_TEXTURE_MAX_LEVEL, 1);
+    }
+    glTextureSubImage2D(woodTextures[0], 0, 0, 0, width, height, GL_RGB, GL_UNSIGNED_SHORT, diffuse);
+    glTextureSubImage2D(woodTextures[1], 0, 0, 0, width, height, GL_RGB, GL_UNSIGNED_SHORT, normal);
+    glTextureSubImage2D(woodTextures[2], 0, 0, 0, width, height, GL_RGB, GL_UNSIGNED_SHORT, arm);
+    stbi_image_free(diffuse);
+    stbi_image_free(arm);
+    stbi_image_free(normal);
+
+    glActiveTexture(GL_TEXTURE1);
+    glBindTexture(GL_TEXTURE_2D, woodTextures[0]);
+    glActiveTexture(GL_TEXTURE2);
+    glBindTexture(GL_TEXTURE_2D, woodTextures[1]);
+    glActiveTexture(GL_TEXTURE3);
+    glBindTexture(GL_TEXTURE_2D, woodTextures[2]);
+
+    glActiveTexture(GL_TEXTURE0);
+
+    glProgramUniform1i(eyeRayTracerProgram, 1, 1);
+    glProgramUniform1i(eyeRayTracerProgram, 2, 2);
+    glProgramUniform1i(eyeRayTracerProgram, 3, 3);
+
     static glm::fvec2 quad[] = {
         glm::fvec2(-1.0f, -1.0f),
         glm::fvec2(1.0f, -1.0f),
@@ -102,25 +160,31 @@ Scene::~Scene() {
     glDeleteVertexArrays(1, &modelVAO);
     glDeleteBuffers(1, &screenBuffer);
     glDeleteBuffers(1, &modelBuffer);
+    glDeleteTextures(3, woodTextures);
     glDeleteProgram(eyeRayTracerProgram);
 }
 
 
 void Scene::createTrianglesBuffers() {
     computeData.triangles = 0;
-    for (const Object &obj: m_objects)
-        computeData.triangles += obj.triangles.size();
+    for (const Object &obj: m_objects) {
+        //if (obj.material_index <= 2)
+            computeData.triangles += obj.triangles.size();
+    }
 
     const GLsizeiptr triangleBytes = computeData.triangles * sizeof(Triangle);
 
-    std::cout << "Triangles: " << computeData.triangles << "\t " << triangleBytes/1024.0/1024.0 << " MB\n";
+    std::cout << "Triangles: " << computeData.triangles << "\t " << triangleBytes/1024.0 << " KB\n";
     
-    Triangle * const triangles = new Triangle[computeData.triangles];
+    Triangle * const triangles = new Triangle[computeData.triangles]{};
 
-    unsigned int index = 0;
-    for (Object &obj: m_objects) {
-        for (Triangle &tri: obj.triangles) {
-            triangles[index++] = tri;
+    uint32_t index = 0;
+    for (const Object &obj: m_objects) {
+        //if (obj.material_index <= 2)
+        {
+            for (const Triangle &tri: obj.triangles) {
+                triangles[index++] = tri;
+            }
         }
     }
 
@@ -129,7 +193,7 @@ void Scene::createTrianglesBuffers() {
     delete[] triangles;
 
     glCreateBuffers(1, &modelBuffer);
-    glNamedBufferStorage(modelBuffer, (long)computeData.triangles*3*sizeof(Vertex), nullptr, 0);
+    glNamedBufferStorage(modelBuffer, sizeof(Vertex)*3*computeData.triangles, nullptr, 0);
     glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 5, modelBuffer);
 
     for (int i=0; i < 5; ++i) {
@@ -167,10 +231,11 @@ void Scene::finalizeObjects() {
         createRTCSData();
         bindBuffer();
 
+        const uint32_t trisDiv64Ceil = ceilPower2<uint32_t, 6U>(computeData.triangles);
+
         glUseProgram(drawBufferProgram);
-        glDispatchCompute((int)glm::ceil(computeData.triangles / 64.0f), 1, 1);
+        glDispatchCompute(trisDiv64Ceil, 1, 1);
         glMemoryBarrier(GL_ALL_BARRIER_BITS);
-        glFinish();
 
         computeData.initialized = true;
     }
@@ -218,30 +283,31 @@ void Scene::adaptResolution(const glm::ivec2 &newRes) {
     glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 2, rayBuffer);
 }
 
-void Scene::traceScene(int width, int height, const glm::fmat4 &Camera, int recursion, unsigned int sample) {
-    static const int CAMERAloc = glGetUniformLocation(eyeRayTracerProgram, "CAMERA");
-    static const int RECloc = glGetUniformLocation(eyeRayTracerProgram, "RECURSION");
-    static const int SAMPLEloc = glGetUniformLocation(eyeRayTracerProgram, "SAMPLE");
-    static const int CLOCKloc = glGetUniformLocation(eyeRayTracerProgram, "CLOCK");
+void Scene::traceScene(const uint32_t width, const uint32_t height, const uint32_t sample) {
+    const uint32_t widthDivCeil  = ceilPower2<uint32_t, 3U>(width);
+    const uint32_t heightDivCeil = ceilPower2<uint32_t, 3U>(height);
 
-    glProgramUniformMatrix4fv(eyeRayTracerProgram, CAMERAloc, 1, GL_FALSE, &Camera[0].x);
-    glProgramUniform1i(eyeRayTracerProgram, RECloc, recursion);
-    glProgramUniform1i(eyeRayTracerProgram, SAMPLEloc, sample);
-    glProgramUniform1ui(eyeRayTracerProgram, CLOCKloc, clock());
+    static const int SAMPLEloc = glGetUniformLocation(eyeRayTracerProgram, "SAMPLE");
+    glProgramUniform1ui(eyeRayTracerProgram, SAMPLEloc, sample);
 
     glUseProgram(eyeRayTracerProgram);
-    glDispatchCompute(((int)glm::ceil((float)width / 8.0f)), ((int)glm::ceil((float)height / 8.0f)), 1);
-    glMemoryBarrier(GL_ALL_BARRIER_BITS);
+    glDispatchCompute(widthDivCeil, heightDivCeil, 1);
+    glMemoryBarrier(GL_SHADER_IMAGE_ACCESS_BARRIER_BIT);
 }
 
-void Scene::render(int width, int height, bool moving, const glm::fmat4 &Camera, unsigned int sample) {
+void Scene::prepare(int &width, int &height, bool moving, const glm::fmat4 &Camera) {
     static bool firstTime = true;
     if (firstTime) {
         adaptResolution({ width, height });
         firstTime = false;
     }
+    
+    static const int CAMERAloc = glGetUniformLocation(eyeRayTracerProgram, "CAMERA");
+    static const int RECloc = glGetUniformLocation(eyeRayTracerProgram, "RECURSION");
+    static const int CLOCKloc = glGetUniformLocation(eyeRayTracerProgram, "CLOCK");
 
-    int recursion = 12;
+    glProgramUniformMatrix4fv(eyeRayTracerProgram, CAMERAloc, 1, GL_FALSE, &Camera[0].x);
+    glProgramUniform1ui(eyeRayTracerProgram, CLOCKloc, clock());
 
     if (moving) {
         glBindImageTexture(0, computeData.renderTargetLow, 0, GL_FALSE, 0, GL_WRITE_ONLY, GL_RGBA32F);
@@ -250,14 +316,14 @@ void Scene::render(int width, int height, bool moving, const glm::fmat4 &Camera,
         width = (int)(240.0/height*width);
         height = 240;
 
-        recursion = 6;
+        glProgramUniform1i(eyeRayTracerProgram, RECloc, 4);
     }
     else {
         glBindImageTexture(0, computeData.renderTarget, 0, GL_FALSE, 0, GL_WRITE_ONLY, GL_RGBA32F);
         glBindTextureUnit(0, computeData.renderTarget);
-    }
 
-    traceScene(width, height, Camera, recursion, sample);
+        glProgramUniform1i(eyeRayTracerProgram, RECloc, 12);
+    }
 }
 
 void Scene::display(unsigned int sample) {
@@ -298,7 +364,7 @@ void Scene::exportRAW(const char *name) const {
                       pixel_count * sizeof(glm::fvec4),
                       &raw_pixels[0]);
     std::ofstream f(name, std::ios::binary);
-    f.write(reinterpret_cast<char*>(&raw_pixels[0]), pixel_count * sizeof(glm::fvec4));
+    f.write(reinterpret_cast<char*>(raw_pixels.get()), pixel_count * sizeof(glm::fvec4));
     f.close();
 }
 
@@ -307,10 +373,10 @@ std::shared_ptr<unsigned char[]> Scene::exportRGBA8() const  {
 
     std::shared_ptr<unsigned char[]> bmpData(new unsigned char[pixel_count*4]);
 
-    auto *raw_pixels = new glm::fvec4[pixel_count];
+    std::unique_ptr<glm::fvec4[]> raw_pixels(new glm::fvec4[pixel_count]);
     glGetTextureImage(computeData.renderTarget, 0, GL_RGBA, GL_FLOAT,
                       pixel_count * sizeof(glm::fvec4),
-                      raw_pixels);
+                      raw_pixels.get());
 
     for (int i = 0; i < pixel_count; ++i) {
         const glm::fvec4 &pixel = raw_pixels[i];
@@ -319,8 +385,6 @@ std::shared_ptr<unsigned char[]> Scene::exportRGBA8() const  {
         bmpData[i * 4 + 2] = static_cast<unsigned char>(pixel.b * 255);
         bmpData[i * 4 + 3] = static_cast<unsigned char>(255);
     }
-
-    delete[] raw_pixels;
 
     return bmpData;
 }
@@ -344,9 +408,10 @@ bool Scene::exportBMP(const char *name) const {
     bmpFile.write(reinterpret_cast<char*>(&info), sizeof(info));
 
     for (unsigned long i = 0; i < pixel_count; ++i) {
-        bmpFile << static_cast<unsigned char>(glm::clamp(raw_pixels[i].b * 255, 0.0f, 255.0f));
-        bmpFile << static_cast<unsigned char>(glm::clamp(raw_pixels[i].g * 255, 0.0f, 255.0f));
-        bmpFile << static_cast<unsigned char>(glm::clamp(raw_pixels[i].b * 255, 0.0f, 255.0f));
+        const glm::fvec3 mappedColor = glm::pow(ACESFilm(raw_pixels[i]), glm::fvec3(1.0f/2.2f));
+        bmpFile << static_cast<unsigned char>(glm::clamp(mappedColor.b * 256.0f, 0.0f, 255.0f));
+        bmpFile << static_cast<unsigned char>(glm::clamp(mappedColor.g * 256.0f, 0.0f, 255.0f));
+        bmpFile << static_cast<unsigned char>(glm::clamp(mappedColor.r * 256.0f, 0.0f, 255.0f));
     }
 
     bmpFile.close();
@@ -385,9 +450,10 @@ bool Scene::addWavefrontModel(const std::string &name) {
             if (object) {
                 for (const st_wf_face &face: faces) {
                     object->triangles.emplace_back(
-                            positions[face.pos_i[0] - 1], positions[face.pos_i[1] - 1], positions[face.pos_i[2] - 1],
-                            normals[face.nrm_i[0] - 1], normals[face.nrm_i[1] - 1], normals[face.nrm_i[2] - 1],
-                            object->material_index
+                        positions[face.pos_i[0] - 1], positions[face.pos_i[1] - 1], positions[face.pos_i[2] - 1],
+                        normals[face.nrm_i[0] - 1], normals[face.nrm_i[1] - 1], normals[face.nrm_i[2] - 1],
+                        uv_coords[face.tex_i[0] - 1], uv_coords[face.tex_i[1] - 1], uv_coords[face.tex_i[2] - 1],
+                        object->material_index
                     );
                 }
             }
@@ -425,9 +491,10 @@ bool Scene::addWavefrontModel(const std::string &name) {
     if (object) {
         for (const st_wf_face &face: faces) {
             object->triangles.emplace_back(
-                    positions[face.pos_i[0] - 1], positions[face.pos_i[1] - 1], positions[face.pos_i[2] - 1],
-                    normals[face.nrm_i[0] - 1], normals[face.nrm_i[1] - 1], normals[face.nrm_i[2] - 1],
-                    object->material_index
+                positions[face.pos_i[0] - 1], positions[face.pos_i[1] - 1], positions[face.pos_i[2] - 1],
+                normals[face.nrm_i[0] - 1], normals[face.nrm_i[1] - 1], normals[face.nrm_i[2] - 1],
+                uv_coords[face.tex_i[0] - 1], uv_coords[face.tex_i[1] - 1], uv_coords[face.tex_i[2] - 1],
+                object->material_index
             );
         }
     }
@@ -468,10 +535,15 @@ bool Scene::readWFMaterial(const std::string &material_name) {
             }
             else if (line.compare(0, 2, "Ns") == 0) {
                 SSCANF(line.c_str(), "%*s %f", &material.specular_roughness.a);
+                material.specular_roughness.a /= 1000.0f;
             }
         }
     }
 
     mtlFile.close();
+
+    for (const auto &mat : m_material_indices) {
+        std::cout << mat.first << "\t:\t" << mat.second << '\n';
+    }
     return true;
 }

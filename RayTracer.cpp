@@ -21,34 +21,38 @@ static constexpr glm::dvec3 rot_x(1.0f, 0.0f, 0.0f);
 static constexpr glm::dvec3 rot_y(0.0f, 1.0f, 0.0f);
 static int WIDTH(3440), HEIGHT(1440);
 
-static glm::dvec2 MVP_rot(0, M_PI);
-static glm::dvec3 MVP_translation(0.0, 1.0, 4.0);
+static glm::dvec3 MVP_translation(0.0, 2.0, 4.0);
+static glm::dvec2 MVP_rot(-atan2(2.0, 4.0), M_PI);
 
-static glm::fvec3 LIGHT_DIR = glm::normalize(glm::fvec3(0.0, -1.0, 2.0)) * 0.0f;
-static glm::fvec3 AMBIENT = glm::fvec3(0.9, 0.96, 1.0) * 0.5f;
+static glm::fvec3 LIGHT_DIR = glm::normalize(glm::fvec3(0.0, 2.0, 0.5)) * 1.0f;
+static glm::fvec3 AMBIENT = glm::fvec3(0.2f, 0.21f, 0.22f) * 0.0f;
 
 
 
-void finalRender(GLFWwindow *window, Scene &scene, int width, int height, unsigned int &sample) {
+void finalRender(GLFWwindow *window, Scene &scene, int width, int height, uint32_t &sample) {
     glm::dmat4 ROT = glm::rotate(-MVP_rot.y, rot_y) * glm::rotate(-MVP_rot.x, rot_x);
     glm::fmat4 CAMERA = glm::translate(MVP_translation) * ROT;
     glm::fmat4 MVP = glm::perspectiveFov(glm::radians(90.0), (double)WIDTH, (double)HEIGHT, 0.03, 1024.0) * glm::rotate(-MVP_rot.x, rot_x) * glm::rotate(-MVP_rot.y, rot_y) * glm::translate(glm::dvec3(-1,-1,1)*MVP_translation);
+    scene.prepare(width, height, false, CAMERA);
     const auto t0 = glfwGetTime();
-    double lastSwap = t0;
     double t;
-    while (sample < 127) {
-        scene.render(width, height, false, CAMERA, ++sample);
+    glfwSwapInterval(0);
+    while (true) {
+        scene.traceScene(width, height, ++sample);
+        glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+        scene.display(sample);
+        glfwSetWindowTitle(window, ("GPU RT - Samples: " + std::to_string(sample+1)).c_str());
+        glfwSwapBuffers(window);
+        glfwPollEvents();
+        if (glfwGetKey(window, GLFW_KEY_F3) == GLFW_PRESS || sample == 383)
+            break;
     }
-    glFinish();
-    glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
-    scene.display(sample);
-    glfwSwapBuffers(window);
-    glfwPollEvents();
     double sps = (sample+1) / (glfwGetTime() - t0);// * WIDTH * HEIGHT;
     std::cout << sps << std::endl;
     glfwSwapInterval(1);
     glfwSetWindowTitle(window, ("GPU RT - Samples: " + std::to_string(sample+1) + " - Finished").c_str());
     scene.exportRAW("./res/final/final.bytes");
+    scene.exportBMP("./res/final/finalACES.bmp");
 }
 
 
@@ -120,6 +124,8 @@ void mainLoop(GLFWwindow *window, Scene &scene) {
 
         if (moving || lastMoving != moving)
         {
+            int width = WIDTH;
+            int height = HEIGHT;
             if (lastMoving != moving)
                 sample = 0;
             ROT = glm::rotate(-MVP_rot.y, rot_y) * glm::rotate(-MVP_rot.x, rot_x);
@@ -127,14 +133,15 @@ void mainLoop(GLFWwindow *window, Scene &scene) {
             glm::fmat4 MVP = P * glm::rotate(-MVP_rot.x, rot_x) * glm::rotate(-MVP_rot.y, rot_y) * glm::translate(glm::dvec3(-1,-1,1)*MVP_translation);
             glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
             if (!moving) {
-                sample = 0;
                 glfwSetWindowTitle(window, ("GPU RT - Samples: " + std::to_string(sample+1)).c_str());
-                scene.render(WIDTH, HEIGHT, false, CameraTransform, sample++);
+                scene.prepare(width, height, false, CameraTransform);
+                scene.traceScene(width, height, sample++);
                 scene.display(sample);
             }
             else if (middleBtn) {
                 glfwSetWindowTitle(window, ("GPU RT - Samples: " + std::to_string(sample+1)).c_str());
-                scene.render(WIDTH, HEIGHT, true, CameraTransform, sample++);
+                scene.prepare(width, height, true, CameraTransform);
+                scene.traceScene(width, height, sample++);
                 scene.display(sample);
             }
             else {
@@ -157,16 +164,13 @@ void mainLoop(GLFWwindow *window, Scene &scene) {
 
 
 int main(int argc, char* args[]) {
-    std::string name;
+    if (argc != 4)
+        return EXIT_FAILURE;
 
-    std::cout << "Wavefront File: ";
-    std::cin >> name;
+    std::string name(args[1]);
 
-    std::cout << "Width: ";
-    std::cin >> WIDTH;
-
-    std::cout << "Height: ";
-    std::cin >> HEIGHT;
+    WIDTH = atoi(args[2]);
+    HEIGHT = atoi(args[3]);
 
     if (glfwInit() != GLFW_TRUE) {
         std::cerr << "Cannot initialize GLFW\n";
@@ -176,7 +180,12 @@ int main(int argc, char* args[]) {
     glfwWindowHint(GLFW_CONTEXT_VERSION_MAJOR, 4);
     glfwWindowHint(GLFW_CONTEXT_VERSION_MINOR, 5);
     glfwWindowHint(GLFW_OPENGL_FORWARD_COMPAT, GLFW_TRUE);
-    glfwWindowHint(GLFW_OPENGL_PROFILE, GLFW_OPENGL_COMPAT_PROFILE);
+    glfwWindowHint(GLFW_OPENGL_PROFILE, GLFW_OPENGL_CORE_PROFILE);
+
+    glfwWindowHint(GLFW_RED_BITS,             10);
+    glfwWindowHint(GLFW_GREEN_BITS,           10);
+    glfwWindowHint(GLFW_BLUE_BITS,            10);
+    glfwWindowHint(GLFW_ALPHA_BITS,            2);
 
     glm::ivec2 display(720.0f*(float)WIDTH/(float)HEIGHT, 720);
     GLFWwindow *window = glfwCreateWindow(display.x, display.y, "GPU RT", nullptr, nullptr);

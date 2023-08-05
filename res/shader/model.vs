@@ -20,7 +20,7 @@ void main() {
 	vNormal = aNormal.xyz;
 	vAlbedo = aAlbedo.xyz;
 	vSpecular = aSpecularRoughness.rgb;
-	vRoughness = aSpecularRoughness.a * 0.001;
+	vRoughness = aSpecularRoughness.a;
 	vEmission = aEmissionIOR.rgb;
 	vVertex = aPosition.xyz;
 	vIOR = aEmissionIOR.a;

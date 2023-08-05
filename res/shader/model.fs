@@ -51,9 +51,20 @@ void main() {
     vec3 normal = normalize(vNormal);
     vec3 view = normalize(vVertex - CAMERA);
 
-    const float light = max(-dot(normal, LIGHT_DIR), 0.0);
+    const float light = max(-dot(normal,LIGHT_DIR), 0.0);
     const vec3 reflected = reflect(view, normal);
     const float specIntens = max(-dot(reflected, LIGHT_DIR), 0.0);
+    const float specAmbientIntens = max(-dot(view, normal), 0.0);
+
+    const float transmissionAmb = (vIOR == 0.0) ? 0.0 : getTransmission(specAmbientIntens, 1.00029, vIOR);
+
+    const float mCosThetaAmb = 1.0 - specAmbientIntens;
+    const float mCosThetaAmb2 = mCosThetaAmb * mCosThetaAmb;
+    const float mCosThetaAmb4 = mCosThetaAmb2 * mCosThetaAmb2;
+    const float mCosThetaAmb5 = mCosThetaAmb * mCosThetaAmb4;
+
+    const float fresnelAmb = (1.0-transmissionAmb) * mCosThetaAmb5;
+    const float reflectanceAmb = transmissionAmb + fresnelAmb;
 
     const float transmission = (vIOR == 0.0) ? 0.0 : getTransmission(specIntens, 1.00029, vIOR);
 
@@ -64,7 +75,9 @@ void main() {
 
     const float fresnel = (1.0-transmission) * mCosTheta5;
     const float reflectance = transmission + fresnel;
-    const float a_s_lerp = (specIntens + reflectance) * (1.0 - vRoughness);
 
-    outFragColor = WIREFRAME ? normal * 0.5 + 0.5 : vEmission + mix(vAlbedo * (light + max(-dot(view, normal), 0.0)*INV_PI), vSpecular * AMBIENT, a_s_lerp);
+
+    const float a_s_lerp = clamp((specIntens + specAmbientIntens + reflectance + reflectanceAmb)*0.5, 0.0, 1.0) * (1.0 - vRoughness);
+
+    outFragColor = WIREFRAME ? normal * 0.5 + 0.5 : ACESFilm(vEmission + mix(vAlbedo, vSpecular, a_s_lerp) * (AMBIENT + vec3(light + pow(specIntens, vRoughness) + (1.0 - max(-dot(view, normal), 0.0)))));
 } 
