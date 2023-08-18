@@ -24,8 +24,8 @@ static int WIDTH(3440), HEIGHT(1440);
 static glm::dvec3 MVP_translation(0.0, 2.0, 4.0);
 static glm::dvec2 MVP_rot(-atan2(2.0, 4.0), M_PI);
 
-static glm::fvec3 LIGHT_DIR = glm::normalize(glm::fvec3(0.0, 2.0, 0.5)) * 1.0f;
-static glm::fvec3 AMBIENT = glm::fvec3(0.2f, 0.21f, 0.22f) * 0.5f;
+static glm::fvec3 LIGHT_DIR = glm::normalize(glm::fvec3(0.0, 2.0, 0.5)) * 0.0f;
+static glm::fvec3 AMBIENT = glm::fvec3(0.2f, 0.21f, 0.22f) * 0.0f;
 
 
 
@@ -44,7 +44,7 @@ void finalRender(GLFWwindow *window, Scene &scene, int width, int height, uint32
         glfwSetWindowTitle(window, ("GPU RT - Samples: " + std::to_string(sample+1)).c_str());
         glfwSwapBuffers(window);
         glfwPollEvents();
-        if (glfwGetKey(window, GLFW_KEY_F3) == GLFW_PRESS || sample == 383)
+        if (glfwGetKey(window, GLFW_KEY_F3) == GLFW_PRESS || sample == 31)
             break;
     }
     double sps = (sample+1) / (glfwGetTime() - t0);// * WIDTH * HEIGHT;
@@ -178,7 +178,7 @@ int main(int argc, char* args[]) {
     }
 
     glfwWindowHint(GLFW_CONTEXT_VERSION_MAJOR, 4);
-    glfwWindowHint(GLFW_CONTEXT_VERSION_MINOR, 5);
+    glfwWindowHint(GLFW_CONTEXT_VERSION_MINOR, 3);
     glfwWindowHint(GLFW_OPENGL_FORWARD_COMPAT, GLFW_TRUE);
     glfwWindowHint(GLFW_OPENGL_PROFILE, GLFW_OPENGL_CORE_PROFILE);
 
@@ -199,9 +199,20 @@ int main(int argc, char* args[]) {
         return 2;
     }
 
+    int r(0),g(0),b(0),a(0), d(0),s(0);
+    glGetIntegerv(GL_RED_BITS, &r);
+    glGetIntegerv(GL_GREEN_BITS, &g);
+    glGetIntegerv(GL_BLUE_BITS, &b);
+    glGetIntegerv(GL_ALPHA_BITS, &a);
+    glGetIntegerv(GL_DEPTH_BITS, &d);
+    glGetIntegerv(GL_STENCIL_BITS, &s);
+
+    std::cout << r << ':' << g << ':' << b << ':' << a << ':' << d << ':' << s << '\n';
+
     Scene scene;
     std::cout << (scene.addWavefrontModel("./res/models/"+name) ? "Scene Loaded" : "Scene does not exist") << '\n';
 
+    glDisable(GL_FRAMEBUFFER_SRGB);
     scene.finalizeObjects();
     scene.setAmbientLight(AMBIENT);
     scene.setDirectionLight(LIGHT_DIR);

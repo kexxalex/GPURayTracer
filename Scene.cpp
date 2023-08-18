@@ -74,14 +74,20 @@ constexpr T ceilPower2(const T n) {
     return (n >> p) + bool(p & ((1 << p)-1));
 }
 
-
+glm::fvec3 LinearTosRGB(const glm::fvec3& C) {
+    glm::fvec3 sRGB(0.0f);
+    sRGB.r = (C.r <= 0.0031308f) ? C.r * 12.92f : 1.055f * pow(C.r, 1.0f/2.4f) - 0.055f;
+    sRGB.g = (C.g <= 0.0031308f) ? C.g * 12.92f : 1.055f * pow(C.g, 1.0f/2.4f) - 0.055f;
+    sRGB.b = (C.b <= 0.0031308f) ? C.b * 12.92f : 1.055f * pow(C.b, 1.0f/2.4f) - 0.055f;
+    return sRGB;
+}
 
 glm::fvec3 ACESFilm(const glm::fvec3& x) {
-    constexpr float a = 2.51;
-    constexpr float b = 0.03;
-    constexpr float c = 2.43;
-    constexpr float d = 0.59;
-    constexpr float e = 0.14;
+    constexpr float a = 2.51f;
+    constexpr float b = 0.03f;
+    constexpr float c = 2.43f;
+    constexpr float d = 0.59f;
+    constexpr float e = 0.14f;
     return glm::clamp((x*(a*x+b))/(x*(c*x+d)+e), glm::fvec3(0.0f), glm::fvec3(1.0f));
 }
 
@@ -106,9 +112,9 @@ Scene::Scene()
     glCreateBuffers(1, &screenBuffer);
 
     int width, height, channels;
-    unsigned short* diffuse = stbi_load_16("./res/models/textures/laminate_diff.png", &width, &height, &channels, 3);
-    unsigned short* normal = stbi_load_16("./res/models/textures/laminate_normal.png", &width, &height, &channels, 3);
-    unsigned short* arm = stbi_load_16("./res/models/textures/laminate_arm.png", &width, &height, &channels, 3);
+    unsigned short* diffuse = stbi_load_16("./res/models/textures/base-white_diff.png", &width, &height, &channels, 3);
+    unsigned short* normal = stbi_load_16("./res/models/textures/base-white_normal.png", &width, &height, &channels, 3);
+    unsigned short* arm = stbi_load_16("./res/models/textures/base-white_arm.png", &width, &height, &channels, 3);
 
     glCreateTextures(GL_TEXTURE_2D, 3, woodTextures);
     glTextureStorage2D(woodTextures[0], 1, GL_RGB16, width, height);
@@ -167,24 +173,32 @@ Scene::~Scene() {
 
 void Scene::createTrianglesBuffers() {
     computeData.triangles = 0;
+    uint32_t light_sources = 0;
     for (const Object &obj: m_objects) {
-        //if (obj.material_index <= 2)
-            computeData.triangles += obj.triangles.size();
+        computeData.triangles += obj.triangles.size();
+        const glm::fvec3 light = m_materials[obj.material_index].emission_ior;
+        if (glm::dot(light,light) > 0.0f)
+            light_sources += obj.triangles.size();
     }
 
-    const GLsizeiptr triangleBytes = computeData.triangles * sizeof(Triangle);
+    std::cout << light_sources << '\n';
+    glProgramUniform1i(eyeRayTracerProgram, 6, light_sources);
 
-    std::cout << "Triangles: " << computeData.triangles << "\t " << triangleBytes/1024.0 << " KB\n";
+    const uint64_t triangleBytes = computeData.triangles * sizeof(Triangle);
+
+    std::cout << "Triangles: " << computeData.triangles << "\t " << roundf(triangleBytes/1024.0f*100.0f)/100.0f << " KB\n";
     
     Triangle * const triangles = new Triangle[computeData.triangles]{};
 
-    uint32_t index = 0;
+    uint32_t index = light_sources;
+    uint32_t light_index = 0;
     for (const Object &obj: m_objects) {
-        //if (obj.material_index <= 2)
-        {
-            for (const Triangle &tri: obj.triangles) {
+        for (const Triangle &tri: obj.triangles) {
+            const glm::fvec3 light = m_materials[obj.material_index].emission_ior;
+            if (glm::dot(light, light) > 0.0f)
+                triangles[light_index++] = tri;
+            else
                 triangles[index++] = tri;
-            }
         }
     }
 
@@ -307,7 +321,7 @@ void Scene::prepare(int &width, int &height, bool moving, const glm::fmat4 &Came
     static const int CLOCKloc = glGetUniformLocation(eyeRayTracerProgram, "CLOCK");
 
     glProgramUniformMatrix4fv(eyeRayTracerProgram, CAMERAloc, 1, GL_FALSE, &Camera[0].x);
-    glProgramUniform1ui(eyeRayTracerProgram, CLOCKloc, clock());
+    glProgramUniform1ui(eyeRayTracerProgram, CLOCKloc, clock()); // clock() 95834783
 
     if (moving) {
         glBindImageTexture(0, computeData.renderTargetLow, 0, GL_FALSE, 0, GL_WRITE_ONLY, GL_RGBA32F);
@@ -316,13 +330,13 @@ void Scene::prepare(int &width, int &height, bool moving, const glm::fmat4 &Came
         width = (int)(240.0/height*width);
         height = 240;
 
-        glProgramUniform1i(eyeRayTracerProgram, RECloc, 4);
+        glProgramUniform1i(eyeRayTracerProgram, RECloc, 2);
     }
     else {
         glBindImageTexture(0, computeData.renderTarget, 0, GL_FALSE, 0, GL_WRITE_ONLY, GL_RGBA32F);
         glBindTextureUnit(0, computeData.renderTarget);
 
-        glProgramUniform1i(eyeRayTracerProgram, RECloc, 12);
+        glProgramUniform1i(eyeRayTracerProgram, RECloc, 6);
     }
 }
 
@@ -389,7 +403,8 @@ std::shared_ptr<unsigned char[]> Scene::exportRGBA8() const  {
     return bmpData;
 }
 
-bool Scene::exportBMP(const char *name) const {
+bool Scene::exportBMP(const char *name) const
+{
     unsigned long pixel_count = (unsigned long)computeData.resolution.x*computeData.resolution.y;
 
     std::unique_ptr<glm::fvec4[]> raw_pixels(new glm::fvec4[pixel_count]);
@@ -407,8 +422,9 @@ bool Scene::exportBMP(const char *name) const {
     bmpFile.write(reinterpret_cast<char*>(&header), sizeof(header));
     bmpFile.write(reinterpret_cast<char*>(&info), sizeof(info));
 
-    for (unsigned long i = 0; i < pixel_count; ++i) {
-        const glm::fvec3 mappedColor = glm::pow(ACESFilm(raw_pixels[i]), glm::fvec3(1.0f/2.2f));
+    for (unsigned long i = 0; i < pixel_count; ++i)
+    {
+        const glm::fvec3 mappedColor = LinearTosRGB(ACESFilm(raw_pixels[i]));
         bmpFile << static_cast<unsigned char>(glm::clamp(mappedColor.b * 256.0f, 0.0f, 255.0f));
         bmpFile << static_cast<unsigned char>(glm::clamp(mappedColor.g * 256.0f, 0.0f, 255.0f));
         bmpFile << static_cast<unsigned char>(glm::clamp(mappedColor.r * 256.0f, 0.0f, 255.0f));
