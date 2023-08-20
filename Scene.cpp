@@ -76,9 +76,9 @@ constexpr T ceilPower2(const T n) {
 
 glm::fvec3 LinearTosRGB(const glm::fvec3& C) {
     glm::fvec3 sRGB(0.0f);
-    sRGB.r = (C.r <= 0.0031308f) ? C.r * 12.92f : 1.055f * pow(C.r, 1.0f/2.4f) - 0.055f;
-    sRGB.g = (C.g <= 0.0031308f) ? C.g * 12.92f : 1.055f * pow(C.g, 1.0f/2.4f) - 0.055f;
-    sRGB.b = (C.b <= 0.0031308f) ? C.b * 12.92f : 1.055f * pow(C.b, 1.0f/2.4f) - 0.055f;
+    sRGB.r = (C.r <= 0.0031308f) ? C.r * 12.92f : 1.055f * powf(C.r, 1.0f/2.4f) - 0.055f;
+    sRGB.g = (C.g <= 0.0031308f) ? C.g * 12.92f : 1.055f * powf(C.g, 1.0f/2.4f) - 0.055f;
+    sRGB.b = (C.b <= 0.0031308f) ? C.b * 12.92f : 1.055f * powf(C.b, 1.0f/2.4f) - 0.055f;
     return sRGB;
 }
 
@@ -235,9 +235,8 @@ void Scene::createRTCSData() {
 
 
 void Scene::bindBuffer() {
-    glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 3, computeData.triangleBuffer);
-
-    glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 6, computeData.materialBuffer);
+    glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 1, computeData.materialBuffer);
+    glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 2, computeData.triangleBuffer);
 }
 
 void Scene::finalizeObjects() {
@@ -268,8 +267,8 @@ void Scene::setAmbientLight(const glm::fvec3 &ambient_color) {
 }
 
 void Scene::adaptResolution(const glm::ivec2 &newRes) {
-    unsigned long newSize = newRes.x * newRes.y;
-    unsigned long oldSize = computeData.resolution.x * computeData.resolution.y;
+    const unsigned long newSize = newRes.x * newRes.y;
+    const unsigned long oldSize = computeData.resolution.x * computeData.resolution.y;
     computeData.resolution = newRes;
 
     if (newSize != oldSize) {
@@ -288,13 +287,9 @@ void Scene::adaptResolution(const glm::ivec2 &newRes) {
         glTextureParameteri(computeData.renderTargetLow, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
 
         if (newSize > computeData.buffer_res.x*computeData.buffer_res.y) {
-            glDeleteBuffers(1, &rayBuffer);
-            glCreateBuffers(1, &rayBuffer);
-            glNamedBufferStorage(rayBuffer, (GLsizeiptr)newRes.x * newRes.y * sizeof(glm::fvec4), nullptr, 0);
             computeData.buffer_res = newRes;
         }
     }
-    glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 2, rayBuffer);
 }
 
 void Scene::traceScene(const uint32_t width, const uint32_t height, const uint32_t sample) {
@@ -321,7 +316,7 @@ void Scene::prepare(int &width, int &height, bool moving, const glm::fmat4 &Came
     static const int CLOCKloc = glGetUniformLocation(eyeRayTracerProgram, "CLOCK");
 
     glProgramUniformMatrix4fv(eyeRayTracerProgram, CAMERAloc, 1, GL_FALSE, &Camera[0].x);
-    glProgramUniform1ui(eyeRayTracerProgram, CLOCKloc, clock()); // clock() 95834783
+    glProgramUniform1ui(eyeRayTracerProgram, CLOCKloc, 95834783); // clock() 95834783
 
     if (moving) {
         glBindImageTexture(0, computeData.renderTargetLow, 0, GL_FALSE, 0, GL_WRITE_ONLY, GL_RGBA32F);
@@ -336,7 +331,7 @@ void Scene::prepare(int &width, int &height, bool moving, const glm::fmat4 &Came
         glBindImageTexture(0, computeData.renderTarget, 0, GL_FALSE, 0, GL_WRITE_ONLY, GL_RGBA32F);
         glBindTextureUnit(0, computeData.renderTarget);
 
-        glProgramUniform1i(eyeRayTracerProgram, RECloc, 6);
+        glProgramUniform1i(eyeRayTracerProgram, RECloc, 4);
     }
 }
 
@@ -351,7 +346,7 @@ void Scene::display(unsigned int sample) {
 void Scene::renderWireframe(const glm::fmat4 &MVP, const glm::fvec3 &cam_pos) {
     modelShader.setBool("WIREFRAME", true);
     glDisable(GL_DEPTH_TEST);
-    glEnable(GL_CULL_FACE);
+    //glEnable(GL_CULL_FACE);
     glPolygonMode(GL_FRONT_AND_BACK, GL_LINE);
 
     forwardRender(MVP, cam_pos);
