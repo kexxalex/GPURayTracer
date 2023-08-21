@@ -467,23 +467,32 @@ vec3 trace(in Ray ray, in uint seed) {
                 else
                 {
                     // Glossy reflection
-                    path *= specular;
+                    path *= specular * (1.0-roughness);
                     ray.direction = scattered_glossy_ray;
                 }
             }
         }
 
+        /*
         vec3 global_light = vec3(0.0);
         bool has_light = false;
         const float rand_light = UnitFloat(seed) * (1.0 + fresnel_reflectance);
-        if (rand_light < roughness)
+        if (rand_light < roughness) {
             has_light = sampleLight(ray.position, normal, current_tri, seed, global_light);
-        else
+        }
+        else {
             has_light = sampleLightGlossy(ray.position, normal, old_ray, roughness, current_tri, seed, global_light);
+        }
+        */
+        vec3 spec_light = vec3(0.0);
+        vec3 diff_light = vec3(0.0);
+        bool has_light = sampleLight(ray.position, normal, current_tri, seed, diff_light);
+        has_light = has_light || sampleLightGlossy(ray.position, normal, old_ray, roughness, current_tri, seed, spec_light);
+        const vec3 global_light = diff_light * roughness + spec_light * (1.0 - roughness + fresnel_reflectance);
 
-
-        if (has_light)
-            energy += path * global_light * (1.0 + fresnel_reflectance);
+        if (has_light) {
+            energy += path * global_light;
+        }
 
         if (dot(ray.direction, true_normal) <= 0.0)
             break;
@@ -513,7 +522,7 @@ void main(void) {
 
     vec4 color = vec4(0.0, 0.0, 0.0, 1.0);
     vec4 position = vec4(0.0, 0.0, 0.0, 1.0);
-    vec3 dtctor = vec3((TEXEL.x - 0.5*SIZE.x + 0.5)*inv_height, (TEXEL.y + 0.5)*1.0*inv_height - 0.5, 0.5) + 0.125*vec3(UnitFloat(seed)*inv_width, UnitFloat(seed)*inv_height, 0.0);
+    vec3 dtctor = vec3((TEXEL.x - 0.5*SIZE.x + 0.5)*inv_height, (TEXEL.y + 0.5)*inv_height - 0.5, 0.5) + 0.25*vec3(UnitFloat(seed)*inv_width, UnitFloat(seed)*inv_height, 0.0);
     vec4 direction = vec4(normalize(dtctor - position.xyz), 0.0);
     Ray ray;
     ray.position = (CAMERA * position).xyz;
