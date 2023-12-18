@@ -88,7 +88,7 @@ void main() {
     const vec3 skyNormal = skyColor(normal);
     const vec3 skyReflected = skyColor(reflected);
 
-    vec3 diffuse = vec3(diffIntens * dot(LUMA, skyNormal));
+    vec3 diffuse = vec3(diffIntens * dot(LUMA, skyNormal) * INV_PI);
     vec3 specular = skyReflected;
 
     float roughness = vRoughness;
