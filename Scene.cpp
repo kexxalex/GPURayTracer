@@ -1,9 +1,16 @@
 #include <iostream>
 #include <fstream>
+#include <algorithm>
 #include "Scene.hpp"
 #include "Shader.hpp"
 #define STB_IMAGE_IMPLEMENTATION
 #include <stb/stb_image.h>
+
+#include <zlib.h>
+#define TINYEXR_USE_MINIZ 0
+#define TINYEXR_USE_STB_ZLIB 0
+#define TINYEXR_IMPLEMENTATION
+#include "tinyexr/tinyexr.h"
 
 
 #ifdef __linux__
@@ -41,32 +48,6 @@ struct st_BMP_INFO_HEADER {
 #pragma pack(pop)
 
 
-
-
-// Automatically maps and unmaps the Buffer
-
-template<typename T>
-struct MappedBuffer {
-    MappedBuffer(GLuint &buffer_id, unsigned int count,
-                 GLbitfield buffer_flags = GL_MAP_COHERENT_BIT | GL_MAP_PERSISTENT_BIT | GL_MAP_WRITE_BIT,
-                 GLbitfield access = GL_MAP_COHERENT_BIT | GL_MAP_PERSISTENT_BIT | GL_MAP_WRITE_BIT)
-                 : buffer(buffer_id), ptr(nullptr) {
-        if (buffer_id == 0 && count > 0) {
-            glCreateBuffers(1, &buffer_id);
-            glNamedBufferStorage(buffer_id, count * sizeof(T), nullptr, buffer_flags);
-        }
-        ptr = (T *)glMapNamedBufferRange(buffer_id, 0, count * sizeof(T), access);
-    }
-
-    ~MappedBuffer() { glUnmapNamedBuffer(buffer); }
-
-    inline T &operator[](unsigned int index) { return ptr[index]; }
-
-    GLuint buffer;
-    T *ptr;
-};
-
-
 template<typename T, uint32_t p>
 constexpr T ceilPower2(const T n) {
     // Ceils the number when dividing with 2^p
@@ -91,6 +72,98 @@ glm::fvec3 ACESFilm(const glm::fvec3& x) {
     return glm::clamp((x*(a*x+b))/(x*(c*x+d)+e), glm::fvec3(0.0f), glm::fvec3(1.0f));
 }
 
+bool Scene::loadTexture(const std::string &texture_name, uint32_t material_id, uint32_t offset)
+{
+    int width, height;
+    float* image_data = nullptr;
+    const char* err = nullptr;
+
+    int ret = LoadEXR(&image_data, &width, &height, texture_name.c_str(), &err);
+
+    if (ret != TINYEXR_SUCCESS) {
+        std::cerr << "Couldn't load " << texture_name << std::endl;
+        if (err) {
+            std::cerr << '\t' << err << std::endl;
+            FreeEXRErrorMessage(err);
+        }
+        return false;
+    }
+
+    std::cout << texture_name << '\t' << width << 'x' << height << std::endl;
+    glTextureSubImage3D(textureAtlas,
+        0,
+        0, 0, material_id*3u + offset,
+        width, height, 1,
+        GL_RGBA, GL_FLOAT, image_data
+    );
+    free(image_data);
+
+    return true;
+}
+
+bool Scene::loadEnvironmentTexture(const std::string &texture_name)
+{
+    int width, height;
+    float* image_data = nullptr;
+    const char* err = nullptr;
+
+    int ret = LoadEXR(&image_data, &width, &height, texture_name.c_str(), &err);
+
+    if (ret != TINYEXR_SUCCESS) {
+        std::cerr << "Couldn't load " << texture_name << std::endl;
+        if (err) {
+            std::cerr << '\t' << err << std::endl;
+            FreeEXRErrorMessage(err);
+        }
+        return false;
+    }
+    std::cout << texture_name << '\t' << width << 'x' << height << std::endl;
+    if (environmentTexture)
+        glDeleteTextures(1, &environmentTexture);
+
+    glCreateTextures(GL_TEXTURE_2D, 1, &environmentTexture);
+    glTextureStorage2D(environmentTexture, 1, GL_RGB32F, width, height);
+    glTextureParameteri(environmentTexture, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+    glTextureParameteri(environmentTexture, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+    glTextureParameteri(environmentTexture, GL_TEXTURE_WRAP_S, GL_REPEAT);
+    glTextureParameteri(environmentTexture, GL_TEXTURE_WRAP_T, GL_REPEAT);
+    glTextureParameteri(environmentTexture, GL_TEXTURE_MAX_LEVEL, 1);
+    glTextureSubImage2D(environmentTexture, 0, 0, 0, width, height, GL_RGBA, GL_FLOAT, image_data);
+
+    free(image_data);
+
+    glActiveTexture(GL_TEXTURE2);
+    glBindTexture(GL_TEXTURE_2D, environmentTexture);
+    glProgramUniform1i(eyeRayTracerProgram, 2, 2);
+    glProgramUniform1i(modelShader.getID(), 2, 2);
+    glActiveTexture(GL_TEXTURE0);
+
+    return true;
+}
+
+
+bool Scene::loadMaterial(const std::string &name, uint32_t material_id) {
+    if (material_id >= m_materials.size())
+        return false;
+    
+    bool diffuse = loadTexture(name+"_albedo.exr",   material_id, 0);
+    bool normal = loadTexture(name+"_normal.exr", material_id, 1);
+    bool arm = loadTexture(name+"_arm.exr",    material_id, 2);
+    if (diffuse && normal && arm)
+    {
+        activeTextures[material_id] = 1;
+    }
+    else {
+        activeTextures[material_id] = 0;
+    }
+    glActiveTexture(GL_TEXTURE1);
+    glBindTexture(GL_TEXTURE_2D_ARRAY, textureAtlas);
+    glProgramUniform1i(eyeRayTracerProgram, 1, 1);
+    glProgramUniform1i(modelShader.getID(), 1, 1);
+    glActiveTexture(GL_TEXTURE0);
+    glNamedBufferSubData(hasTextureBuffer, 0, sizeof(int)*activeTextures.size(), activeTextures.data());
+    return diffuse && normal && arm;
+}
 
 Scene::Scene()
     : eyeRayTracerProgram(glCreateProgram()), drawBufferProgram(glCreateProgram()),
@@ -111,43 +184,6 @@ Scene::Scene()
     glCreateVertexArrays(1, &modelVAO);
     glCreateBuffers(1, &screenBuffer);
 
-    int width, height, channels;
-    unsigned short* diffuse = stbi_load_16("./res/models/textures/base-white_diff.png", &width, &height, &channels, 3);
-    unsigned short* normal = stbi_load_16("./res/models/textures/base-white_normal.png", &width, &height, &channels, 3);
-    unsigned short* arm = stbi_load_16("./res/models/textures/base-white_arm.png", &width, &height, &channels, 3);
-
-    glCreateTextures(GL_TEXTURE_2D, 3, woodTextures);
-    glTextureStorage2D(woodTextures[0], 1, GL_RGB16, width, height);
-    glTextureStorage2D(woodTextures[1], 1, GL_RGB16, width, height);
-    glTextureStorage2D(woodTextures[2], 1, GL_RGB16, width, height);
-
-    for (int i=0; i < 3; i++) {
-        glTextureParameteri(woodTextures[i], GL_TEXTURE_MIN_FILTER, GL_LINEAR);
-        glTextureParameteri(woodTextures[i], GL_TEXTURE_MAG_FILTER, GL_LINEAR);
-        glTextureParameteri(woodTextures[i], GL_TEXTURE_WRAP_S, GL_REPEAT);
-        glTextureParameteri(woodTextures[i], GL_TEXTURE_WRAP_T, GL_REPEAT);
-        glTextureParameteri(woodTextures[i], GL_TEXTURE_MAX_LEVEL, 1);
-    }
-    glTextureSubImage2D(woodTextures[0], 0, 0, 0, width, height, GL_RGB, GL_UNSIGNED_SHORT, diffuse);
-    glTextureSubImage2D(woodTextures[1], 0, 0, 0, width, height, GL_RGB, GL_UNSIGNED_SHORT, normal);
-    glTextureSubImage2D(woodTextures[2], 0, 0, 0, width, height, GL_RGB, GL_UNSIGNED_SHORT, arm);
-    stbi_image_free(diffuse);
-    stbi_image_free(arm);
-    stbi_image_free(normal);
-
-    glActiveTexture(GL_TEXTURE1);
-    glBindTexture(GL_TEXTURE_2D, woodTextures[0]);
-    glActiveTexture(GL_TEXTURE2);
-    glBindTexture(GL_TEXTURE_2D, woodTextures[1]);
-    glActiveTexture(GL_TEXTURE3);
-    glBindTexture(GL_TEXTURE_2D, woodTextures[2]);
-
-    glActiveTexture(GL_TEXTURE0);
-
-    glProgramUniform1i(eyeRayTracerProgram, 1, 1);
-    glProgramUniform1i(eyeRayTracerProgram, 2, 2);
-    glProgramUniform1i(eyeRayTracerProgram, 3, 3);
-
     static glm::fvec2 quad[] = {
         glm::fvec2(-1.0f, -1.0f),
         glm::fvec2(1.0f, -1.0f),
@@ -166,7 +202,9 @@ Scene::~Scene() {
     glDeleteVertexArrays(1, &modelVAO);
     glDeleteBuffers(1, &screenBuffer);
     glDeleteBuffers(1, &modelBuffer);
-    glDeleteTextures(3, woodTextures);
+    glDeleteBuffers(1, &hasTextureBuffer);
+    glDeleteTextures(1, &environmentTexture);
+    glDeleteTextures(1, &textureAtlas);
     glDeleteProgram(eyeRayTracerProgram);
 }
 
@@ -181,68 +219,99 @@ void Scene::createTrianglesBuffers() {
             light_sources += obj.triangles.size();
     }
 
-    std::cout << light_sources << '\n';
     glProgramUniform1i(eyeRayTracerProgram, 6, light_sources);
 
     const uint64_t triangleBytes = computeData.triangles * sizeof(Triangle);
 
     std::cout << "Triangles: " << computeData.triangles << "\t " << roundf(triangleBytes/1024.0f*100.0f)/100.0f << " KB\n";
     
-    Triangle * const triangles = new Triangle[computeData.triangles]{};
+    Triangle *        const triangles        = new Triangle[computeData.triangles]{};
+    TriangleModel *   const triangleModels   = new TriangleModel[computeData.triangles]{};
+    TriangleShading * const triangleShadings = new TriangleShading[computeData.triangles]{};
 
     uint32_t index = light_sources;
     uint32_t light_index = 0;
+    
+    glm::fvec3 bb_min = m_objects[0].triangles[0].position;
+    glm::fvec3 bb_max = m_objects[0].triangles[0].position;
+
     for (const Object &obj: m_objects) {
         for (const Triangle &tri: obj.triangles) {
+            bb_min.x = std::min(tri.position.x, bb_min.x);
+            bb_min.y = std::min(tri.position.y, bb_min.y);
+            bb_min.z = std::min(tri.position.z, bb_min.z);
+
+            bb_max.x = std::max(tri.position.x, bb_max.x);
+            bb_max.y = std::max(tri.position.y, bb_max.y);
+            bb_max.z = std::max(tri.position.z, bb_max.z);
+
             const glm::fvec3 light = m_materials[obj.material_index].emission_ior;
+            uint32_t id;
             if (glm::dot(light, light) > 0.0f)
-                triangles[light_index++] = tri;
+                id = light_index++;
             else
-                triangles[index++] = tri;
+                id = index++;
+            triangles[id] = tri;
         }
     }
 
-    glCreateBuffers(1, &computeData.triangleBuffer);
-    glNamedBufferStorage(computeData.triangleBuffer, triangleBytes, triangles, 0);
+    const glm::fvec3 bb_center = (bb_min + bb_max) * 0.5f;
+    glProgramUniform3f(eyeRayTracerProgram, glGetUniformLocation(eyeRayTracerProgram, "BB_CENTER"), bb_center.x, bb_center.y, bb_center.z);
+    glProgramUniform1f(eyeRayTracerProgram, glGetUniformLocation(eyeRayTracerProgram, "EXPOSURE"), 1.0f);
+    glProgramUniform1f(modelShader.getID(), 3, 1.0f);
+
+    std::sort(triangles + light_sources, triangles + computeData.triangles, [](const Triangle &a, const Triangle &b) { return glm::length(glm::cross(a.u, a.v)) > glm::length(glm::cross(b.u, b.v)); });
+
+    for (int i=0; i < computeData.triangles; i++) {
+        const Triangle &tri = triangles[i];
+        new (&triangleModels[i])   TriangleModel  (tri.true_normal, tri.position, tri.u, tri.v);
+        new (&triangleShadings[i]) TriangleShading(tri.material_id, tri.normals, tri.tangents, tri.tex_p, tri.tex_u, tri.tex_v);
+    }
     delete[] triangles;
+
+    glCreateBuffers(4, computeData.buffer.arr);
+    glNamedBufferStorage(computeData.buffer.models,    sizeof(TriangleModel)   * computeData.triangles, triangleModels, 0);
+    glNamedBufferStorage(computeData.buffer.shading,   sizeof(TriangleShading) * computeData.triangles, triangleShadings, 0);
+    glNamedBufferStorage(computeData.buffer.materials, sizeof(Material)        * computeData.triangles, m_materials.data(), 0);
+    delete[] triangleModels, triangleShadings;
 
     glCreateBuffers(1, &modelBuffer);
     glNamedBufferStorage(modelBuffer, sizeof(Vertex)*3*computeData.triangles, nullptr, 0);
     glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 5, modelBuffer);
 
-    for (int i=0; i < 5; ++i) {
+    for (int i=0; i < 7; ++i) {
         glVertexArrayVertexBuffer(modelVAO, i, modelBuffer, 0, sizeof(Vertex));
         glVertexArrayAttribFormat(modelVAO, i, 4, GL_FLOAT, GL_FALSE, sizeof(glm::fvec4)*i);
         glEnableVertexArrayAttrib(modelVAO, i);
     }
 }
 
-void Scene::createMaterialsBuffers() {
-    unsigned int material_count = m_materials.size();
-
-    MappedBuffer<Material> mapped_material(computeData.materialBuffer, material_count);
-
-    for (unsigned int index = 0; index < material_count; ++index) {
-        mapped_material[index] = m_materials[index];
-    }
-}
-
 void Scene::createRTCSData() {
     createTrianglesBuffers();
-    createMaterialsBuffers();
     glProgramUniform1i(eyeRayTracerProgram, glGetUniformLocation(eyeRayTracerProgram, "COUNT"), computeData.triangles);
-}
 
+    glCreateTextures(GL_TEXTURE_2D_ARRAY, 1, &textureAtlas);
+    glTextureStorage3D(textureAtlas, 1, GL_R11F_G11F_B10F, 4096, 4096, m_materials.size() * 3);
+    glTextureParameteri(textureAtlas, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+    glTextureParameteri(textureAtlas, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+    glTextureParameteri(textureAtlas, GL_TEXTURE_WRAP_S, GL_REPEAT);
+    glTextureParameteri(textureAtlas, GL_TEXTURE_WRAP_T, GL_REPEAT);
+    glTextureParameteri(textureAtlas, GL_TEXTURE_MAX_LEVEL, 1);
 
-void Scene::bindBuffer() {
-    glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 1, computeData.materialBuffer);
-    glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 2, computeData.triangleBuffer);
+    activeTextures.resize(m_materials.size());
+    std::fill(activeTextures.begin(), activeTextures.end(), 0);
+
+    glCreateBuffers(1, &hasTextureBuffer);
+    glNamedBufferStorage(hasTextureBuffer, sizeof(int)*m_materials.size(), activeTextures.data(), GL_DYNAMIC_STORAGE_BIT);
+    glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 6, hasTextureBuffer);
+
+    std::cout << "Material Count: " << activeTextures.size() << '\n';
 }
 
 void Scene::finalizeObjects() {
     if (!computeData.initialized) {
         createRTCSData();
-        bindBuffer();
+        glBindBuffersBase(GL_SHADER_STORAGE_BUFFER, 1, 3, computeData.buffer.arr);
 
         const uint32_t trisDiv64Ceil = ceilPower2<uint32_t, 6U>(computeData.triangles);
 
@@ -250,20 +319,10 @@ void Scene::finalizeObjects() {
         glDispatchCompute(trisDiv64Ceil, 1, 1);
         glMemoryBarrier(GL_ALL_BARRIER_BITS);
 
+        glFinish();
+
         computeData.initialized = true;
     }
-}
-
-void Scene::setDirectionLight(const glm::fvec3 &light_dir) {
-    static const int RT_LightLoc = glGetUniformLocation(eyeRayTracerProgram, "LIGHT_DIR");
-    glProgramUniform3f(eyeRayTracerProgram, RT_LightLoc, light_dir.x, light_dir.y, light_dir.z);
-    modelShader.setFloat3("LIGHT_DIR", light_dir);
-}
-
-void Scene::setAmbientLight(const glm::fvec3 &ambient_color) {
-    static const int RT_AmbientLoc = glGetUniformLocation(eyeRayTracerProgram, "AMBIENT");
-    glProgramUniform3f(eyeRayTracerProgram, RT_AmbientLoc, ambient_color.r, ambient_color.g, ambient_color.b);
-    modelShader.setFloat3("AMBIENT", ambient_color);
 }
 
 void Scene::adaptResolution(const glm::ivec2 &newRes) {
@@ -293,8 +352,8 @@ void Scene::adaptResolution(const glm::ivec2 &newRes) {
 }
 
 void Scene::traceScene(const uint32_t width, const uint32_t height, const uint32_t sample) {
-    const uint32_t widthDivCeil  = ceilPower2<uint32_t, 3U>(width);
-    const uint32_t heightDivCeil = ceilPower2<uint32_t, 3U>(height);
+    const uint32_t widthDivCeil  = ceilPower2<uint32_t, 2U>(width);
+    const uint32_t heightDivCeil = ceilPower2<uint32_t, 2U>(height);
 
     static const int SAMPLEloc = glGetUniformLocation(eyeRayTracerProgram, "SAMPLE");
     glProgramUniform1ui(eyeRayTracerProgram, SAMPLEloc, sample);
@@ -331,7 +390,7 @@ void Scene::prepare(int &width, int &height, bool moving, const glm::fmat4 &Came
         glBindImageTexture(0, computeData.renderTarget, 0, GL_FALSE, 0, GL_WRITE_ONLY, GL_RGBA32F);
         glBindTextureUnit(0, computeData.renderTarget);
 
-        glProgramUniform1i(eyeRayTracerProgram, RECloc, 4);
+        glProgramUniform1i(eyeRayTracerProgram, RECloc, 6);
     }
 }
 
@@ -346,7 +405,7 @@ void Scene::display(unsigned int sample) {
 void Scene::renderWireframe(const glm::fmat4 &MVP, const glm::fvec3 &cam_pos) {
     modelShader.setBool("WIREFRAME", true);
     glDisable(GL_DEPTH_TEST);
-    //glEnable(GL_CULL_FACE);
+    glEnable(GL_CULL_FACE);
     glPolygonMode(GL_FRONT_AND_BACK, GL_LINE);
 
     forwardRender(MVP, cam_pos);
@@ -365,6 +424,21 @@ void Scene::forwardRender(const glm::fmat4 &MVP, const glm::fvec3 &cam_pos) {
     glDrawArrays(GL_TRIANGLES, 0, computeData.triangles*3);
 }
 
+
+void Scene::exportEXR(const char *name) const {
+    unsigned long pixel_count = (unsigned long)computeData.resolution.x*computeData.resolution.y;
+    std::unique_ptr<glm::fvec4[]> raw_pixels(new glm::fvec4[pixel_count]);
+    glGetTextureImage(computeData.renderTarget, 0, GL_RGB, GL_FLOAT,
+                      pixel_count * sizeof(glm::fvec4),
+                      &raw_pixels[0]);
+    
+    const char * error = nullptr;
+    const int ret = SaveEXR(&raw_pixels[0].r, computeData.resolution.x, computeData.resolution.y, 3, false, name, &error);
+    if (ret != TINYEXR_SUCCESS) {
+        fprintf(stderr, "Save EXR err: %s\n", error);
+        FreeEXRErrorMessage(error);
+    }
+}
 
 void Scene::exportRAW(const char *name) const {
     unsigned long pixel_count = (unsigned long)computeData.resolution.x*computeData.resolution.y;

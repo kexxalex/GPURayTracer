@@ -24,7 +24,11 @@ vec3 LinearTosRGB(in vec3 C) {
     return sRGB;
 }
 
+vec3 LinearToP3(in vec3 C) {
+    return pow(C, vec3(1.0/2.6));
+}
+
 void main() {
     vec3 rgb = texture(tex, vUV).rgb;
-    outFragColor = LinearTosRGB(ACESFilm(rgb));
+    outFragColor = LinearTosRGB(rgb);
 } 

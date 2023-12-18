@@ -10,12 +10,15 @@
 #endif
 
 
+
 struct Vertex {
-    glm::vec4 position;
-    glm::vec4 normal;
-    glm::vec4 albedo;
-    glm::vec4 specular;
-    glm::fvec4 emission;
+    glm::fvec4 position;
+    glm::fvec4 normal;
+    glm::fvec4 tangent;
+    glm::fvec4 albedo;
+    glm::fvec4 specular_roughness;
+    glm::fvec4 emission_ior;
+    glm::fvec4 uv_mat_id;
 };
 
 
@@ -39,6 +42,7 @@ struct Triangle {
         unsigned int mat)
         : position(p0), u(p1 - p0), v(p2 - p0)
         , normals{n0,n1,n2}
+        , tangents{{}, {}, {}}
         , true_normal(glm::cross(u, v))
         , tex_p(t0), tex_u(t1 - t0), tex_v(t2 - t0)
         , material_id(mat)
@@ -93,4 +97,39 @@ struct Object {
     std::string name;
     std::vector<Triangle> triangles;
     int material_index;
+};
+
+struct TriangleModel {
+    glm::fvec3 true_normal;
+    glm::fvec3 position;
+    glm::fvec3 span_u;
+    glm::fvec3 span_v;
+
+    TriangleModel() : true_normal(0.0f), position(0.0f), span_u(0.0f), span_v(0.0f) {}
+    TriangleModel(const glm::fvec3& N, const glm::fvec3 &P, const glm::fvec3 &U, const glm::fvec3 &V)
+        : true_normal(N), position(P), span_u(U), span_v(V)
+    {}
+    TriangleModel &operator=(const TriangleModel &tri) = delete;
+};
+
+struct TriangleShading {
+    uint32_t material_id;
+
+    glm::fvec3 normals[3];
+    glm::fvec3 tangents[3];
+
+    glm::fvec2 tex_p;
+    glm::fvec2 tex_u;
+    glm::fvec2 tex_v;
+
+    TriangleShading()
+        : material_id(0)
+        , normals{glm::fvec3(0.0f), glm::fvec3(0.0f), glm::fvec3(0.0f)}
+        , tangents{glm::fvec3(0.0f), glm::fvec3(0.0f), glm::fvec3(0.0f)}
+        , tex_p(0.0f), tex_u(0.0f), tex_v(0.0f)
+    {}
+    TriangleShading(uint32_t mat, const glm::fvec3 (&n)[3], const glm::fvec3 (&t)[3], const glm::fvec2 &p, const glm::fvec2 &u, const glm::fvec2 &v)
+        : material_id(mat), normals{n[0], n[1], n[2]}, tangents{t[0], t[1], t[2]}, tex_p(p), tex_u(u), tex_v(v)
+    {}
+    TriangleShading &operator=(const TriangleShading &tri) = delete;
 };

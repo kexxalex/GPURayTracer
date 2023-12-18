@@ -1,19 +1,27 @@
 #version 450 core
 
 layout (location=0) out vec3 outFragColor;
+uniform layout(location=1) sampler2DArray ATLAS;
+uniform layout(location=2) sampler2D ENVIRONMENT;
+uniform layout(location=3) float EXPOSURE;
+
+layout(std430, binding=6) restrict readonly buffer hasTextureBuffer {
+    int hasTexture[];
+};
 
 const vec3 LUMA = vec3(0.299, 0.587, 0.114);
 
 in vec3 vNormal;
+in vec3 vTangent;
 in vec3 vAlbedo;
 in vec3 vSpecular;
 in vec3 vEmission;
 in vec3 vVertex;
+in vec2 vUV;
 in float vIOR;
 in float vRoughness;
+in flat int vMatID;
 
-uniform vec3 LIGHT_DIR;
-uniform vec3 AMBIENT;
 uniform mat4 MVP;
 uniform vec3 CAMERA;
 
@@ -47,37 +55,60 @@ vec3 ACESFilm(in vec3 x) {
     return clamp((x*(a*x+b))/(x*(c*x+d)+e), 0.0, 1.0);
 }
 
+vec3 LinearTosRGB(in vec3 C) {
+    vec3 sRGB = vec3(0.0);
+    sRGB.r = (C.r <= 0.0031308) ? C.r * 12.92 : 1.055 * pow(C.r, 1.0/2.4) - 0.055;
+    sRGB.g = (C.g <= 0.0031308) ? C.g * 12.92 : 1.055 * pow(C.g, 1.0/2.4) - 0.055;
+    sRGB.b = (C.b <= 0.0031308) ? C.b * 12.92 : 1.055 * pow(C.b, 1.0/2.4) - 0.055;
+    return sRGB;
+}
+
+vec3 sRGBtoLinear(in vec3 C) { return pow((C + 0.055)/1.055, vec3(2.4)); }
+
+vec3 skyColor(in const vec3 direction) {
+    const vec2 uv = vec2(atan(direction.z, direction.x) * INV_PI * 0.5, -asin(direction.y) * INV_PI) + vec2(0.5);
+    return texture(ENVIRONMENT, uv).rgb * EXPOSURE;
+}
+
 void main() {
-    vec3 normal = normalize(vNormal);
-    vec3 view = normalize(vVertex - CAMERA);
+    const bool hasTex = ( hasTexture[vMatID] == 1 );
+    const vec3 N = normalize(vNormal);
 
-    const float light = max(-dot(normal,LIGHT_DIR), 0.0);
+    const vec3 T = normalize(vTangent - N * dot(N, vTangent));
+    const mat3 TBNi = mat3(T, cross(T, N), N);
+    const vec3 tex_normal = normalize(texture(ATLAS, vec3(vUV, vMatID*3 + 1)).rgb*2.0-1.0);
+    const vec3 normal = hasTex ? normalize(TBNi * tex_normal) : N;
+
+    const vec3 view = normalize(vVertex - CAMERA);
     const vec3 reflected = reflect(view, normal);
-    const float specIntens = max(-dot(reflected, LIGHT_DIR), 0.0);
-    const float specAmbientIntens = max(-dot(view, normal), 0.0);
 
-    const float transmissionAmb = (vIOR == 0.0) ? 0.0 : getTransmission(specAmbientIntens, 1.00029, vIOR);
+    const float diffIntens = max(-dot(view, normal), 0.0);
+    const float specIntens = max(dot(normal, reflected), 0.0);
 
-    const float mCosThetaAmb = 1.0 - specAmbientIntens;
-    const float mCosThetaAmb2 = mCosThetaAmb * mCosThetaAmb;
-    const float mCosThetaAmb4 = mCosThetaAmb2 * mCosThetaAmb2;
-    const float mCosThetaAmb5 = mCosThetaAmb * mCosThetaAmb4;
+    const vec3 skyNormal = skyColor(normal);
+    const vec3 skyReflected = skyColor(reflected);
 
-    const float fresnelAmb = (1.0-transmissionAmb) * mCosThetaAmb5;
-    const float reflectanceAmb = transmissionAmb + fresnelAmb;
+    vec3 diffuse = vec3(diffIntens * dot(LUMA, skyNormal));
+    vec3 specular = skyReflected;
 
-    const float transmission = (vIOR == 0.0) ? 0.0 : getTransmission(specIntens, 1.00029, vIOR);
+    float roughness = vRoughness;
 
-    const float mCosTheta = 1.0 - specIntens;
-    const float mCosTheta2 = mCosTheta * mCosTheta;
-    const float mCosTheta4 = mCosTheta2 * mCosTheta2;
-    const float mCosTheta5 = mCosTheta * mCosTheta4;
+    if (hasTex) {
+        vec3 tex_color = sRGBtoLinear(texture(ATLAS, vec3(vUV, vMatID*3 + 0)).rgb);
+        vec2 ar = texture(ATLAS, vec3(vUV, vMatID*3 + 2)).rg;
+        diffuse *= tex_color * ar.x;
+        specular *= tex_color;
+        roughness = ar.y;
+    }
+    else {
+        diffuse *= vAlbedo;
+        specular *= vSpecular;
+    }
 
-    const float fresnel = (1.0-transmission) * mCosTheta5;
-    const float reflectance = transmission + fresnel;
+    const float transmission = (vIOR == 0.0) ? 0.0 : getTransmission(diffIntens, 1.00029, vIOR);
+    const float fresnel_reflectance = fma(1.0-transmission, pow(1.0-diffIntens, 5), transmission);
 
+    vec3 color = mix(specIntens * specular, diffuse, roughness) + specular * vec3(fresnel_reflectance);
 
-    const float a_s_lerp = clamp((specIntens + specAmbientIntens + reflectance + reflectanceAmb)*0.5, 0.0, 1.0) * (1.0 - vRoughness);
-
-    outFragColor = WIREFRAME ? normal * 0.5 + 0.5 : ACESFilm(vEmission + mix(vAlbedo, vSpecular, a_s_lerp) * (AMBIENT + vec3(light + pow(specIntens, vRoughness) + (1.0 - max(-dot(view, normal), 0.0)))));
+    outFragColor = WIREFRAME ? normal * 0.5 + 0.5 : LinearTosRGB(clamp(color, vec3(0.0), vec3(1.0)));
 } 

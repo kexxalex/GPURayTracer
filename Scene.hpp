@@ -15,11 +15,10 @@ public:
 
     bool addWavefrontModel(const std::string &model_name);
 
-    void setDirectionLight(const glm::fvec3 &light_dir);
-    void setAmbientLight(const glm::fvec3 &ambient_color);
+    bool loadMaterial(const std::string &name, uint32_t material_id);
+    bool loadEnvironmentTexture(const std::string &texture_name);
 
     void finalizeObjects();
-    void generateRandomUnitVectors();
     void adaptResolution(const glm::ivec2 &newRes);
     void prepare(int &width, int &height, bool moving, const glm::fmat4 &Camera);
     void traceScene(const uint32_t width, const uint32_t height, const uint32_t sample);
@@ -29,6 +28,7 @@ public:
     std::shared_ptr<unsigned char[]> exportRGBA8() const;
     bool exportBMP(const char *name) const;
     void exportRAW(const char *name) const;
+    void exportEXR(const char *name) const;
 
     inline Object &getObject(std::string &&name) {
         return m_objects.emplace_back(std::move(name));
@@ -52,30 +52,30 @@ public:
 private:
     st_RTCS_data computeData;
 
-    GLuint rayBuffer{ 0 };
-
     GLuint modelBuffer{ 0 };
     GLuint modelVAO;
 
     GLuint screenBuffer;
     GLuint screenVAO;
 
+    GLuint hasTextureBuffer{ 0 };
+
     Shader displayShader;
     Shader modelShader;
 
     GLuint eyeRayTracerProgram;
     GLuint drawBufferProgram;
-    GLuint woodTextures[3];
+    GLuint environmentTexture;
+    GLuint textureAtlas;
+    std::vector<int> activeTextures;
 
     void createTrianglesBuffers();
 
-    void createMaterialsBuffers();
-
     void createRTCSData();
 
-    void bindBuffer();
-
     bool readWFMaterial(const std::string &material_name);
+
+    bool loadTexture(const std::string &texture_name, uint32_t material_id, uint32_t offset);
 
     std::vector<Object> m_objects;
     std::vector<Material> m_materials;

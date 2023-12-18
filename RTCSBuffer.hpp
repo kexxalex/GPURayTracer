@@ -13,7 +13,7 @@
 struct st_RTCS_data {
     ~st_RTCS_data() {
         glDeleteTextures(2, &renderTarget);
-        glDeleteBuffers(2, &triangleBuffer);
+        glDeleteBuffers(3, buffer.arr);
     }
     bool initialized{false};
     glm::ivec2 resolution{0, 0};
@@ -24,6 +24,12 @@ struct st_RTCS_data {
     GLuint renderTarget{0};
     GLuint renderTargetLow{0};
 
-    GLuint triangleBuffer{0};
-    GLuint materialBuffer{0};
+    union {
+        GLuint arr[3];
+        struct {
+            GLuint models;
+            GLuint shading;
+            GLuint materials;
+        };
+    } buffer;
 };

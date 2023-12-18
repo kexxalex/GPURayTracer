@@ -30,7 +30,6 @@ bool loadShaderProgram(const std::string&& filename, GLint shaderType, GLuint &s
     glCompileShader(shaderID);
 
     glGetShaderiv(shaderID, GL_COMPILE_STATUS, &success);
-    std::cout << filename.substr(filename.size()-2, 2) << ' ';
     if (!success) {
         glGetShaderInfoLog(shaderID, 1024, nullptr, infoLog);
         std::cout << "[ ERROR  ][Shader ] Error in: " << filename << std::endl << infoLog << std::endl;

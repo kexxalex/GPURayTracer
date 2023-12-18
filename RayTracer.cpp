@@ -7,6 +7,7 @@
 #include <GL/glew.h>
 #include <GLFW/glfw3.h>
 #include <glm/gtx/transform.hpp>
+#include <imgui.h>
 
 #elif _WIN32
 
@@ -21,12 +22,8 @@ static constexpr glm::dvec3 rot_x(1.0f, 0.0f, 0.0f);
 static constexpr glm::dvec3 rot_y(0.0f, 1.0f, 0.0f);
 static int WIDTH(3440), HEIGHT(1440);
 
-static glm::dvec3 MVP_translation(0.0, 2.0, -4.0);
-static glm::dvec2 MVP_rot(-atan2(2.0, 4.0), 0.0);
-
-static glm::fvec3 LIGHT_DIR = glm::normalize(glm::fvec3(0.0, 2.0, 0.5)) * 0.0f;
-static glm::fvec3 AMBIENT = glm::fvec3(0.2f, 0.21f, 0.22f) * 0.5f;
-
+static glm::dvec3 MVP_translation(0.0, 1.5, -3.0);
+static glm::dvec2 MVP_rot(-M_PI_4, 0.0);
 
 
 void finalRender(GLFWwindow *window, Scene &scene, int width, int height, uint32_t &sample) {
@@ -37,6 +34,7 @@ void finalRender(GLFWwindow *window, Scene &scene, int width, int height, uint32
     const auto t0 = glfwGetTime();
     double t;
     glfwSwapInterval(0);
+    const uint32_t start_sample = sample;
     while (true) {
         scene.traceScene(width, height, ++sample);
         glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
@@ -47,12 +45,11 @@ void finalRender(GLFWwindow *window, Scene &scene, int width, int height, uint32
         if (glfwGetKey(window, GLFW_KEY_F3) == GLFW_PRESS || sample == 63)
             break;
     }
-    double sps = (sample+1) / (glfwGetTime() - t0);// * WIDTH * HEIGHT;
+    double sps = (sample - start_sample) / (glfwGetTime() - t0);
     std::cout << sps << std::endl;
     glfwSwapInterval(1);
     glfwSetWindowTitle(window, ("GPU RT - Samples: " + std::to_string(sample+1) + " - Finished").c_str());
-    scene.exportRAW("./res/final/final.bytes");
-    scene.exportBMP("./res/final/finalACES.bmp");
+    scene.exportEXR("./res/final/final.exr");
 }
 
 
@@ -69,7 +66,7 @@ void mainLoop(GLFWwindow *window, Scene &scene) {
     glEnable(GL_DEPTH_TEST);
     glFrontFace(GL_CW);
     glCullFace(GL_BACK);
-    glClearColor(AMBIENT.r, AMBIENT.g, AMBIENT.b, 1.0);
+    glClearColor(0.0, 0.0, 0.0, 1.0);
     static unsigned int sample = 0;
 
     while (!glfwWindowShouldClose(window)) {
@@ -199,23 +196,26 @@ int main(int argc, char* args[]) {
         return 2;
     }
 
-    int r(0),g(0),b(0),a(0), d(0),s(0);
+    int r(0),g(0),b(0),a(0);
     glGetIntegerv(GL_RED_BITS, &r);
     glGetIntegerv(GL_GREEN_BITS, &g);
     glGetIntegerv(GL_BLUE_BITS, &b);
     glGetIntegerv(GL_ALPHA_BITS, &a);
-    glGetIntegerv(GL_DEPTH_BITS, &d);
-    glGetIntegerv(GL_STENCIL_BITS, &s);
 
-    std::cout << r << ':' << g << ':' << b << ':' << a << ':' << d << ':' << s << '\n';
+    std::cout << r << ':' << g << ':' << b << ':' << a << '\n';
 
     Scene scene;
     std::cout << (scene.addWavefrontModel("./res/models/"+name) ? "Scene Loaded" : "Scene does not exist") << '\n';
 
     glDisable(GL_FRAMEBUFFER_SRGB);
     scene.finalizeObjects();
-    scene.setAmbientLight(AMBIENT);
-    scene.setDirectionLight(LIGHT_DIR);
+
+    scene.loadEnvironmentTexture("res/models/textures/trekker_monument.exr");
+
+    scene.loadMaterial("res/models/textures/cobblestone_floor_04", 0);
+    scene.loadMaterial("res/models/textures/metal", 1);
+    scene.loadMaterial("res/models/textures/rubber", 2);
+
     mainLoop(window, scene);
 
     glfwTerminate();
