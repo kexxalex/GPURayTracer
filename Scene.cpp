@@ -352,8 +352,8 @@ void Scene::adaptResolution(const glm::ivec2 &newRes) {
 }
 
 void Scene::traceScene(const uint32_t width, const uint32_t height, const uint32_t sample) {
-    const uint32_t widthDivCeil  = ceilPower2<uint32_t, 2U>(width);
-    const uint32_t heightDivCeil = ceilPower2<uint32_t, 2U>(height);
+    const uint32_t widthDivCeil  = ceilPower2<uint32_t, 3U>(width);
+    const uint32_t heightDivCeil = ceilPower2<uint32_t, 3U>(height);
 
     static const int SAMPLEloc = glGetUniformLocation(eyeRayTracerProgram, "SAMPLE");
     glProgramUniform1ui(eyeRayTracerProgram, SAMPLEloc, sample);

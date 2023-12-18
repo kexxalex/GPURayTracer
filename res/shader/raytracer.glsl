@@ -1,6 +1,6 @@
 #version 450 core
 
-layout (local_size_x=4, local_size_y=4, local_size_z=1) in;
+layout (local_size_x=8, local_size_y=8, local_size_z=1) in;
 
 struct Vec3 {
     float x, y, z;
@@ -516,7 +516,7 @@ vec3 trace(in Ray ray, in uint seed, in uint light_seed) {
 
         vec3 diff_light = vec3(0.0);
         vec3 spec_light = vec3(0.0);
-        //*
+        /*
         bool has_light = false;
         if (unitFloat(light_seed) < 0.5)
             has_light = sampleLight(ray.position, normal, current_tri, seed, diff_light);
