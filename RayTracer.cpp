@@ -38,7 +38,7 @@ void finalRender(GLFWwindow *window, Scene &scene, int width, int height, uint32
     while (true) {
         scene.traceScene(width, height, ++sample);
         glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
-        scene.display(sample);
+        scene.display();
         glfwSetWindowTitle(window, ("GPU RT - Samples: " + std::to_string(sample+1)).c_str());
         glfwSwapBuffers(window);
         glfwPollEvents();
@@ -133,13 +133,13 @@ void mainLoop(GLFWwindow *window, Scene &scene) {
                 glfwSetWindowTitle(window, ("GPU RT - Samples: " + std::to_string(sample+1)).c_str());
                 scene.prepare(width, height, false, CameraTransform);
                 scene.traceScene(width, height, sample++);
-                scene.display(sample);
+                scene.display();
             }
             else if (middleBtn) {
                 glfwSetWindowTitle(window, ("GPU RT - Samples: " + std::to_string(sample+1)).c_str());
                 scene.prepare(width, height, true, CameraTransform);
                 scene.traceScene(width, height, sample++);
-                scene.display(sample);
+                scene.display();
             }
             else {
                 glfwSetWindowTitle(window, "GPU RT - OpenGL Phong");
@@ -210,11 +210,11 @@ int main(int argc, char* args[]) {
     glDisable(GL_FRAMEBUFFER_SRGB);
     scene.finalizeObjects();
 
-    scene.loadEnvironmentTexture("res/models/textures/trekker_monument.exr");
+    scene.loadEnvironmentTexture(window, "res/models/textures/brownStudio.exr");
 
-    scene.loadMaterial("res/models/textures/cobblestone_floor_04", 0);
-    scene.loadMaterial("res/models/textures/metal", 1);
-    scene.loadMaterial("res/models/textures/rubber", 2);
+    scene.loadMaterial("res/models/textures/planks", 0);
+    scene.loadMaterial("res/models/textures/aluminium", 1);
+    //scene.loadMaterial("res/models/textures/rubber", 2);
 
     mainLoop(window, scene);
 

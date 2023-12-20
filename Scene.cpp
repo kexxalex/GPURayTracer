@@ -101,7 +101,7 @@ bool Scene::loadTexture(const std::string &texture_name, uint32_t material_id, u
     return true;
 }
 
-bool Scene::loadEnvironmentTexture(const std::string &texture_name)
+bool Scene::loadEnvironmentTexture(GLFWwindow* window, const std::string &texture_name)
 {
     int width, height;
     float* image_data = nullptr;
@@ -118,25 +118,86 @@ bool Scene::loadEnvironmentTexture(const std::string &texture_name)
         return false;
     }
     std::cout << texture_name << '\t' << width << 'x' << height << std::endl;
-    if (environmentTexture)
-        glDeleteTextures(1, &environmentTexture);
+    if (radianceTexture)
+        glDeleteTextures(1, &radianceTexture);
+    if (irradianceTexture)
+        glDeleteTextures(1, &irradianceTexture);
 
-    glCreateTextures(GL_TEXTURE_2D, 1, &environmentTexture);
-    glTextureStorage2D(environmentTexture, 1, GL_RGB32F, width, height);
-    glTextureParameteri(environmentTexture, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
-    glTextureParameteri(environmentTexture, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
-    glTextureParameteri(environmentTexture, GL_TEXTURE_WRAP_S, GL_REPEAT);
-    glTextureParameteri(environmentTexture, GL_TEXTURE_WRAP_T, GL_REPEAT);
-    glTextureParameteri(environmentTexture, GL_TEXTURE_MAX_LEVEL, 1);
-    glTextureSubImage2D(environmentTexture, 0, 0, 0, width, height, GL_RGBA, GL_FLOAT, image_data);
+    glCreateTextures(GL_TEXTURE_2D, 1, &radianceTexture);
+    glTextureStorage2D(radianceTexture, 1, GL_RGBA32F, width, height);
+    glTextureParameteri(radianceTexture, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+    glTextureParameteri(radianceTexture, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+    glTextureParameteri(radianceTexture, GL_TEXTURE_WRAP_S, GL_REPEAT);
+    glTextureParameteri(radianceTexture, GL_TEXTURE_WRAP_T, GL_REPEAT);
+    glTextureParameteri(radianceTexture, GL_TEXTURE_MAX_LEVEL, 1);
+    glTextureSubImage2D(radianceTexture, 0, 0, 0, width, height, GL_RGBA, GL_FLOAT, image_data);
 
     free(image_data);
 
+    glCreateTextures(GL_TEXTURE_2D, 1, &irradianceTexture);
+    glTextureStorage2D(irradianceTexture, 1, GL_RGBA32F, width/4, height/4);
+    glTextureParameteri(irradianceTexture, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+    glTextureParameteri(irradianceTexture, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+    glTextureParameteri(irradianceTexture, GL_TEXTURE_WRAP_S, GL_REPEAT);
+    glTextureParameteri(irradianceTexture, GL_TEXTURE_WRAP_T, GL_REPEAT);
+    glTextureParameteri(irradianceTexture, GL_TEXTURE_MAX_LEVEL, 1);
+
     glActiveTexture(GL_TEXTURE2);
-    glBindTexture(GL_TEXTURE_2D, environmentTexture);
+    glBindTexture(GL_TEXTURE_2D, radianceTexture);
+
+    glActiveTexture(GL_TEXTURE3);
+    glBindTexture(GL_TEXTURE_2D, irradianceTexture);
+
     glProgramUniform1i(eyeRayTracerProgram, 2, 2);
     glProgramUniform1i(modelShader.getID(), 2, 2);
+    glProgramUniform1i(eyeRayTracerProgram, 3, 3);
+    glProgramUniform1i(modelShader.getID(), 3, 3);
+
     glActiveTexture(GL_TEXTURE0);
+    glBindTextureUnit(0, irradianceTexture);
+
+    glBindImageTexture(0, radianceTexture, 0, GL_FALSE, 0, GL_READ_ONLY, GL_RGBA32F);
+    glBindImageTexture(1, irradianceTexture, 0, GL_FALSE, 0, GL_READ_WRITE, GL_RGBA32F);
+    
+    int irr_width, irr_height;
+    ret = LoadEXR(&image_data, &irr_width, &irr_height, (texture_name + "-irradiance.exr").c_str(), &err);
+    if (ret == TINYEXR_SUCCESS)
+    {
+        glTextureSubImage2D(irradianceTexture, 0, 0, 0, irr_width, irr_height, GL_RGBA, GL_FLOAT, image_data);
+        free(image_data);
+    }
+    else
+    {
+        if (err)
+            FreeEXRErrorMessage(err);
+
+        const uint32_t widthDivCeil  = ceilPower2<uint32_t, 6U>(width/4);
+        const uint32_t heightDivCeil = ceilPower2<uint32_t, 0U>(height/4);
+
+        glUseProgram(irradianceProgram);
+        for (int i=0; i < height; i++) {
+            glProgramUniform1i(irradianceProgram, 1, i);
+            glDispatchCompute(widthDivCeil, heightDivCeil, 1);
+            glMemoryBarrier(GL_SHADER_IMAGE_ACCESS_BARRIER_BIT);
+            if (i % 16 == 0) {
+                std::cout << i << '/' << height << std::endl;
+                glFinish();
+            }
+        }
+
+        const unsigned long pixel_count = (unsigned long)width*height/16;
+        std::unique_ptr<glm::fvec3[]> raw_pixels(new glm::fvec3[pixel_count]);
+        glGetTextureImage(irradianceTexture, 0, GL_RGB, GL_FLOAT,
+                        pixel_count * sizeof(glm::fvec3),
+                        &raw_pixels[0]);
+        
+        const char * error = nullptr;
+        const int ret2 = SaveEXR(&raw_pixels[0].r, width/4, height/4, 3, false, (texture_name + "-irradiance.exr").c_str(), &error);
+        if (ret2 != TINYEXR_SUCCESS) {
+            fprintf(stderr, "Save EXR err: %s\n", error);
+            FreeEXRErrorMessage(error);
+        }
+    }
 
     return true;
 }
@@ -160,13 +221,15 @@ bool Scene::loadMaterial(const std::string &name, uint32_t material_id) {
     glBindTexture(GL_TEXTURE_2D_ARRAY, textureAtlas);
     glProgramUniform1i(eyeRayTracerProgram, 1, 1);
     glProgramUniform1i(modelShader.getID(), 1, 1);
+
     glActiveTexture(GL_TEXTURE0);
+
     glNamedBufferSubData(hasTextureBuffer, 0, sizeof(int)*activeTextures.size(), activeTextures.data());
     return diffuse && normal && arm;
 }
 
 Scene::Scene()
-    : eyeRayTracerProgram(glCreateProgram()), drawBufferProgram(glCreateProgram()),
+    : eyeRayTracerProgram(glCreateProgram()), drawBufferProgram(glCreateProgram()), irradianceProgram(glCreateProgram()),
       displayShader("./res/shader/displayQuad"), modelShader("./res/shader/model")
 {
     GLuint computeID = 0;
@@ -178,6 +241,11 @@ Scene::Scene()
     if (loadShaderProgram("./res/shader/createDrawBuffers.glsl", GL_COMPUTE_SHADER, computeID))
         glAttachShader(drawBufferProgram, computeID);
     glLinkProgram(drawBufferProgram);
+    glDeleteShader(computeID);
+
+    if (loadShaderProgram("./res/shader/irradiance.glsl", GL_COMPUTE_SHADER, computeID))
+        glAttachShader(irradianceProgram, computeID);
+    glLinkProgram(irradianceProgram);
     glDeleteShader(computeID);
 
     glCreateVertexArrays(1, &screenVAO);
@@ -203,9 +271,12 @@ Scene::~Scene() {
     glDeleteBuffers(1, &screenBuffer);
     glDeleteBuffers(1, &modelBuffer);
     glDeleteBuffers(1, &hasTextureBuffer);
-    glDeleteTextures(1, &environmentTexture);
+    glDeleteTextures(1, &radianceTexture);
+    glDeleteTextures(1, &irradianceTexture);
     glDeleteTextures(1, &textureAtlas);
     glDeleteProgram(eyeRayTracerProgram);
+    glDeleteProgram(drawBufferProgram);
+    glDeleteProgram(irradianceProgram);
 }
 
 
@@ -258,7 +329,7 @@ void Scene::createTrianglesBuffers() {
     const glm::fvec3 bb_center = (bb_min + bb_max) * 0.5f;
     glProgramUniform3f(eyeRayTracerProgram, glGetUniformLocation(eyeRayTracerProgram, "BB_CENTER"), bb_center.x, bb_center.y, bb_center.z);
     glProgramUniform1f(eyeRayTracerProgram, glGetUniformLocation(eyeRayTracerProgram, "EXPOSURE"), 1.0f);
-    glProgramUniform1f(modelShader.getID(), 3, 1.0f);
+    glProgramUniform1f(modelShader.getID(), 4, 1.0f);
 
     std::sort(triangles + light_sources, triangles + computeData.triangles, [](const Triangle &a, const Triangle &b) { return glm::length(glm::cross(a.u, a.v)) > glm::length(glm::cross(b.u, b.v)); });
 
@@ -319,8 +390,6 @@ void Scene::finalizeObjects() {
         glDispatchCompute(trisDiv64Ceil, 1, 1);
         glMemoryBarrier(GL_ALL_BARRIER_BITS);
 
-        glFinish();
-
         computeData.initialized = true;
     }
 }
@@ -375,7 +444,7 @@ void Scene::prepare(int &width, int &height, bool moving, const glm::fmat4 &Came
     static const int CLOCKloc = glGetUniformLocation(eyeRayTracerProgram, "CLOCK");
 
     glProgramUniformMatrix4fv(eyeRayTracerProgram, CAMERAloc, 1, GL_FALSE, &Camera[0].x);
-    glProgramUniform1ui(eyeRayTracerProgram, CLOCKloc, 95834783); // clock() 95834783
+    glProgramUniform1ui(eyeRayTracerProgram, CLOCKloc, clock()); // clock() 95834783
 
     if (moving) {
         glBindImageTexture(0, computeData.renderTargetLow, 0, GL_FALSE, 0, GL_WRITE_ONLY, GL_RGBA32F);
@@ -384,7 +453,7 @@ void Scene::prepare(int &width, int &height, bool moving, const glm::fmat4 &Came
         width = (int)(240.0/height*width);
         height = 240;
 
-        glProgramUniform1i(eyeRayTracerProgram, RECloc, 2);
+        glProgramUniform1i(eyeRayTracerProgram, RECloc, 3);
     }
     else {
         glBindImageTexture(0, computeData.renderTarget, 0, GL_FALSE, 0, GL_WRITE_ONLY, GL_RGBA32F);
@@ -394,9 +463,8 @@ void Scene::prepare(int &width, int &height, bool moving, const glm::fmat4 &Came
     }
 }
 
-void Scene::display(unsigned int sample) {
+void Scene::display() {
     displayShader.Bind();
-    displayShader.setUInt("SAMPLES", sample+1);
 
     glBindVertexArray(screenVAO);
     glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);
@@ -427,9 +495,9 @@ void Scene::forwardRender(const glm::fmat4 &MVP, const glm::fvec3 &cam_pos) {
 
 void Scene::exportEXR(const char *name) const {
     unsigned long pixel_count = (unsigned long)computeData.resolution.x*computeData.resolution.y;
-    std::unique_ptr<glm::fvec4[]> raw_pixels(new glm::fvec4[pixel_count]);
+    std::unique_ptr<glm::fvec3[]> raw_pixels(new glm::fvec3[pixel_count]);
     glGetTextureImage(computeData.renderTarget, 0, GL_RGB, GL_FLOAT,
-                      pixel_count * sizeof(glm::fvec4),
+                      pixel_count * sizeof(glm::fvec3),
                       &raw_pixels[0]);
     
     const char * error = nullptr;

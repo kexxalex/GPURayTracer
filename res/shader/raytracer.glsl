@@ -42,7 +42,8 @@ struct Material {
 
 uniform layout(rgba32f, binding=0) restrict image2D img_output;
 uniform layout(location=1) sampler2DArray textureAtlas;
-uniform layout(location=2) sampler2D sky_tex;
+uniform layout(location=2) sampler2D RADIANCE;
+uniform layout(location=3) sampler2D IRRADIANCE;
 uniform layout(location=13) float EXPOSURE;
 
 
@@ -271,7 +272,11 @@ mat3 calculateTBN(in const TriangleShading tri, in const vec3 N, in const vec3 i
 
 vec3 skyColor(in const vec3 direction) {
     const vec2 uv = vec2(atan(direction.z, direction.x) * INV_PI * 0.5, -asin(direction.y) * INV_PI) + vec2(0.5);
-    return texture(sky_tex, uv).rgb * EXPOSURE;
+    return texture(RADIANCE, uv).rgb * EXPOSURE;
+}
+vec3 skyColorDiffuse(in const vec3 direction) {
+    const vec2 uv = vec2(atan(direction.z, direction.x) * INV_PI * 0.5, -asin(direction.y) * INV_PI) + vec2(0.5);
+    return texture(IRRADIANCE, uv).rgb * EXPOSURE;
 }
 
 
@@ -292,7 +297,29 @@ bool sampleSky(in const vec3 position, in const vec3 normal,
             return false;
     }
 
-    light = skyColor(light_probe_ray.direction);
+    light = skyColor(normal);
+    return true;
+}
+
+bool sampleSkyDiffuse(in const vec3 position, in const vec3 normal,
+               in const int current, inout uint seed, out vec3 light)
+{
+
+    Ray light_probe_ray;
+    light_probe_ray.position = position;
+    light_probe_ray.direction = normalize(randomSphere(seed) + normal);
+    vec4 intersection = vec4(0.0, 0.0, -1.0, 0.0);
+    int lightID = -1;
+    
+    for (int triID = 0; triID < COUNT; triID++)
+    {
+        if (triID == current)
+            continue;
+        if (intersectTriangle(light_probe_ray, triangleModels[triID], intersection))
+            return false;
+    }
+
+    light = skyColor(light_probe_ray.direction) * INV_PI;// / (LIGHTS + 2);
     return true;
 }
 
@@ -303,11 +330,10 @@ bool sampleLight(in const vec3 position, in const vec3 normal,
         Samples one random light source as representation for all sources present,
         assuming diffuse behaviour of the material.
     */
-    const int light_id = int(unitFloat(seed) * LIGHTS + 1);
-    if (light_id == 0)
-    {
-        return sampleSky(position, normal, current, seed, light);
-    }
+    if (LIGHTS == 0)
+        return false;
+
+    const int light_id = int(unitFloat(seed) * LIGHTS);
 
     const TriangleModel light_tri = triangleModels[light_id-1];
 
@@ -354,7 +380,7 @@ bool sampleLight(in const vec3 position, in const vec3 normal,
 
     const float tri_area = 0.5 * length(cross(UVP[0], UVP[1]));
 
-    const float light_vis_area_ratio = -DdL; //-dot(true_normal, normal);
+    const float light_vis_area_ratio = -DdL;
     const float probe_ratio = DdN;
     const float distance_ratio = fma(max_t, max_t + 2.0, 1.0);
     light = material.emission_ior.rgb * (tri_area * light_vis_area_ratio * probe_ratio / distance_ratio * LIGHTS);
@@ -414,6 +440,8 @@ bool sampleLightGlossy(in const vec3 position, in const vec3 normal, in const Ra
 vec3 trace(in Ray ray, in uint seed, in uint light_seed) {
     vec3 energy = vec3(0.0);
     vec3 path = vec3(1.0);
+    
+    bool isSpecular = true;
 
     const int MAX_RECURSION = max(RECURSION, 1);
     for (int depth=0; depth < MAX_RECURSION; depth++)
@@ -443,7 +471,7 @@ vec3 trace(in Ray ray, in uint seed, in uint light_seed) {
         const vec2 tex_coord = calculateUV(tri, sec);
         const mat3 TBNi = calculateTBN(tri, N, sec);
 
-        const vec3 texel_albedo = sRGBtoLinear(texture(textureAtlas, vec3(tex_coord, mat_id*3 + 0)).rgb);
+        const vec3 texel_albedo = texture(textureAtlas, vec3(tex_coord, mat_id*3 + 0)).rgb;
         const vec3 tex_normal = normalize(texture(textureAtlas, vec3(tex_coord, mat_id*3 + 1)).xyz*2.0-1.0);
         const vec3 texel_arm = texture(textureAtlas, vec3(tex_coord, mat_id*3 + 2)).rgb;
 
@@ -480,8 +508,9 @@ vec3 trace(in Ray ray, in uint seed, in uint light_seed) {
 
         if (rand_reflectance < fresnel_reflectance) {
             // Fresnel effect, total reflection
-            path *= (rand_metallic < metallic) ? vec3(1.0-roughness*roughness) : specular;
+            path *= (rand_metallic < metallic) ? vec3(1.0-roughness) : specular;
             ray.direction = specular_ray;
+            isSpecular = true;
         }
         else {
             if (rand_metallic < metallic)
@@ -489,6 +518,7 @@ vec3 trace(in Ray ray, in uint seed, in uint light_seed) {
                 // Metallic reflection with roughness
                 path *= albedo;
                 ray.direction = scattered_specular_ray;
+                isSpecular = true;
             }
             else {
                 if (rand_scatter < roughness)
@@ -502,21 +532,23 @@ vec3 trace(in Ray ray, in uint seed, in uint light_seed) {
                     const float alpha = max(theta_i, theta_o);
                     const float beta = min(theta_i, theta_o);
 
-                    path *= albedo * ((A + B*max(0, theta_i-theta_o)*sin(alpha)*tan(beta)) * INV_PI) * occlusion;
+                    path *= albedo * ((A + B*max(0, theta_i-theta_o)*sin(alpha)*tan(beta)) * INV_PI * occlusion);
                     ray.direction = scattered_diffuse;
+                    isSpecular = false;
                 }
                 else
                 {
                     // Glossy reflection
                     path *= specular * (1.0-roughness);
                     ray.direction = scattered_glossy_ray;
+                    isSpecular = true;
                 }
             }
         }
 
         vec3 diff_light = vec3(0.0);
         vec3 spec_light = vec3(0.0);
-        /*
+        //*
         bool has_light = false;
         if (unitFloat(light_seed) < 0.5)
             has_light = sampleLight(ray.position, normal, current_tri, seed, diff_light);
@@ -527,7 +559,7 @@ vec3 trace(in Ray ray, in uint seed, in uint light_seed) {
         bool has_light = sampleLight(ray.position, normal, current_tri, seed, diff_light);
         bool has_spec_light = sampleLightGlossy(ray.position, normal, old_ray, roughness, current_tri, seed, spec_light);
         has_light = has_light || has_spec_light;
-        const vec3 global_light = albedo * diff_light * roughness + specular * spec_light * (fresnel_reflectance + 1.0 - roughness);
+        const vec3 global_light = albedo * diff_light * roughness * occlusion + specular * spec_light * (fresnel_reflectance + 1.0 - roughness);
         //*/
 
         if (has_light)
@@ -540,7 +572,7 @@ vec3 trace(in Ray ray, in uint seed, in uint light_seed) {
 
         //*
         // Russian roulette
-        float brightness = clamp(max(dot(global_light, path), (path.r+path.g+path.b) / 3.0), 1.0/16.0, 1.0);
+        float brightness = clamp(max(dot(global_light, path), (path.r+path.g+path.b) / 3.0), 1.0/8.0, 1.0);
         if (unitFloat(seed) > brightness)
             break;
         

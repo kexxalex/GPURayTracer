@@ -7,6 +7,8 @@
 #include "Shader.hpp"
 #include <memory>
 
+#include "GLFW/glfw3.h"
+
 
 class Scene {
 public:
@@ -16,13 +18,13 @@ public:
     bool addWavefrontModel(const std::string &model_name);
 
     bool loadMaterial(const std::string &name, uint32_t material_id);
-    bool loadEnvironmentTexture(const std::string &texture_name);
+    bool loadEnvironmentTexture(GLFWwindow* window, const std::string &texture_name);
 
     void finalizeObjects();
     void adaptResolution(const glm::ivec2 &newRes);
     void prepare(int &width, int &height, bool moving, const glm::fmat4 &Camera);
     void traceScene(const uint32_t width, const uint32_t height, const uint32_t sample);
-    void display(unsigned int sample);
+    void display();
     void renderWireframe(const glm::fmat4 &MVP, const glm::fvec3 &cam_pos);
     void forwardRender(const glm::fmat4 &MVP, const glm::fvec3 &cam_pos);
     std::shared_ptr<unsigned char[]> exportRGBA8() const;
@@ -55,6 +57,9 @@ private:
     GLuint modelBuffer{ 0 };
     GLuint modelVAO;
 
+    GLuint skyBuffer{ 0 };
+    GLuint skyVAO;
+
     GLuint screenBuffer;
     GLuint screenVAO;
 
@@ -65,7 +70,9 @@ private:
 
     GLuint eyeRayTracerProgram;
     GLuint drawBufferProgram;
-    GLuint environmentTexture;
+    GLuint irradianceProgram;
+    GLuint radianceTexture;
+    GLuint irradianceTexture;
     GLuint textureAtlas;
     std::vector<int> activeTextures;
 

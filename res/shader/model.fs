@@ -2,8 +2,9 @@
 
 layout (location=0) out vec3 outFragColor;
 uniform layout(location=1) sampler2DArray ATLAS;
-uniform layout(location=2) sampler2D ENVIRONMENT;
-uniform layout(location=3) float EXPOSURE;
+uniform layout(location=2) sampler2D RADIANCE;
+uniform layout(location=3) sampler2D IRRADIANCE;
+uniform layout(location=4) float EXPOSURE;
 
 layout(std430, binding=6) restrict readonly buffer hasTextureBuffer {
     int hasTexture[];
@@ -67,7 +68,12 @@ vec3 sRGBtoLinear(in vec3 C) { return pow((C + 0.055)/1.055, vec3(2.4)); }
 
 vec3 skyColor(in const vec3 direction) {
     const vec2 uv = vec2(atan(direction.z, direction.x) * INV_PI * 0.5, -asin(direction.y) * INV_PI) + vec2(0.5);
-    return texture(ENVIRONMENT, uv).rgb * EXPOSURE;
+    return texture(RADIANCE, uv).rgb * EXPOSURE;
+}
+
+vec3 skyColorDiffuse(in const vec3 direction) {
+    const vec2 uv = vec2(atan(direction.z, direction.x) * INV_PI * 0.5, -asin(direction.y) * INV_PI) + vec2(0.5);
+    return texture(IRRADIANCE, uv).rgb * EXPOSURE;
 }
 
 void main() {
@@ -82,33 +88,40 @@ void main() {
     const vec3 view = normalize(vVertex - CAMERA);
     const vec3 reflected = reflect(view, normal);
 
-    const float diffIntens = max(-dot(view, normal), 0.0);
-    const float specIntens = max(dot(normal, reflected), 0.0);
+    const float NdV = max(-dot(view, normal), 0.0);
+    const float NdR = max(dot(normal, reflected), 0.0);
 
-    const vec3 skyNormal = skyColor(normal);
-    const vec3 skyReflected = skyColor(reflected);
+    const vec3 n_irradiance = skyColorDiffuse(normal);
+    const vec3 n_radiance = skyColor(normal);
+    const vec3 r_irradiance = skyColorDiffuse(reflected);
+    const vec3 r_radiance = skyColor(reflected);
 
-    vec3 diffuse = vec3(diffIntens * dot(LUMA, skyNormal) * INV_PI);
-    vec3 specular = skyReflected;
+    vec3 diffuse;
+    vec3 specular = vec3(1.0);
 
     float roughness = vRoughness;
+    float metallic = float(vRoughness < 0.125);
 
     if (hasTex) {
-        vec3 tex_color = sRGBtoLinear(texture(ATLAS, vec3(vUV, vMatID*3 + 0)).rgb);
-        vec2 ar = texture(ATLAS, vec3(vUV, vMatID*3 + 2)).rg;
-        diffuse *= tex_color * ar.x;
-        specular *= tex_color;
-        roughness = ar.y;
+        vec3 tex_color = texture(ATLAS, vec3(vUV, vMatID*3 + 0)).rgb;
+        vec3 arm = texture(ATLAS, vec3(vUV, vMatID*3 + 2)).rgb;
+        diffuse = tex_color;
+        specular *= tex_color * arm.x;
+        roughness = arm.y;
+        metallic = arm.z;
     }
     else {
-        diffuse *= vAlbedo;
+        diffuse = vAlbedo;
         specular *= vSpecular;
     }
 
-    const float transmission = (vIOR == 0.0) ? 0.0 : getTransmission(diffIntens, 1.00029, vIOR);
-    const float fresnel_reflectance = fma(1.0-transmission, pow(1.0-diffIntens, 5), transmission);
+    const float transmission = (vIOR == 0.0) ? 0.0 : getTransmission(NdV, 1.00029, vIOR);
+    const float fresnel_reflectance = fma(1.0-transmission, pow(1.0-NdV, 5), transmission);
 
-    vec3 color = mix(specIntens * specular, diffuse, roughness) + specular * vec3(fresnel_reflectance);
+    specular *= r_radiance * (1.0 - roughness + fresnel_reflectance) * metallic + r_irradiance * fresnel_reflectance * (1.0-roughness);
+    diffuse *= n_irradiance * INV_PI * (1.0 - metallic);
 
-    outFragColor = WIREFRAME ? normal * 0.5 + 0.5 : LinearTosRGB(clamp(color, vec3(0.0), vec3(1.0)));
+    vec3 color = diffuse + specular + vEmission;
+
+    outFragColor = WIREFRAME ? normal * 0.5 + 0.5 : clamp(LinearTosRGB(color), vec3(0.0), vec3(1.0));
 } 
